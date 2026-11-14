@@ -75,7 +75,7 @@ export async function runSandboxCheck(source: string, image: string, timeoutMs =
   if (process.platform !== "linux" || process.getuid?.() === 0) {
     return unavailable("Run this check as a non-root user on Linux with rootless Podman.");
   }
-  const info = await podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupVersion}}"], 10000);
+  const info = await podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], 10000);
   if (info.code !== 0 || info.output !== "true v2") {
     return unavailable("Rootless local Podman with cgroup v2 is required.");
   }
