@@ -106,5 +106,10 @@ export async function openSnapshot(repo: string, base: string, head: string): Pr
       return { kind: "unavailable", reason: "The Git entry could not be read as bounded UTF-8 text." };
     }
   }
-  return { ...refs, changes, read };
+  async function listPaths(ref: Revision): Promise<string[]> {
+    const names = utf8.decode(await git(["ls-tree", "-rz", "--full-tree", "--name-only", refs[ref]])).split("\0");
+    if (names.pop() !== "" || names.length > 30_000) throw new Error("Source inventory exceeds the local limit.");
+    return names.filter(safePath);
+  }
+  return { ...refs, changes, read, listPaths };
 }

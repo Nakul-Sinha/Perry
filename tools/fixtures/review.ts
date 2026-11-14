@@ -11,8 +11,9 @@ if (scenario === "--list" && process.argv.length === 3) {
   console.log(names.join("\n"));
   process.exit(0);
 }
-if (process.argv.length > 3 || !names.includes(scenario)) {
-  console.error("Usage: pnpm review:fixture [case]. Use --list to see case names.");
+const modelArgs = process.argv.slice(3);
+if (!names.includes(scenario) || (modelArgs.length && (modelArgs.length !== 2 || modelArgs[0] !== "--anthropic-model" || !modelArgs[1]))) {
+  console.error("Usage: pnpm review:fixture [case] [--anthropic-model MODEL_ID]. Use --list to see case names.");
   process.exit(2);
 }
 
@@ -79,7 +80,7 @@ try {
     writeFileSync(join(dir, "package.json"), manifest({ check: "node --check index.mjs" }));
     writeFileSync(join(dir, "index.mjs"), "export const total = 3;\n");
   }
-  const proc = spawnSync(process.execPath, [cli, "review", "--repo", dir, "--base", base, "--head", head], {
+  const proc = spawnSync(process.execPath, [cli, "review", "--repo", dir, "--base", base, "--head", head, ...modelArgs], {
     stdio: "inherit", windowsHide: true,
   });
   process.exitCode = proc.status ?? 1;
