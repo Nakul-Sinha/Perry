@@ -56,9 +56,20 @@ To review a real change, run this from Perry's checkout. Replace the path and bo
 pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_HEAD_SHA
 ```
 
-Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. It ignores working-tree edits and lists gaps in coverage. Application tests, model-backed investigation, GitHub comments and account pairing are upcoming. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
+Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. It ignores working-tree edits and lists gaps in coverage. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
 
 The [agent workflow](docs/agent-workflow.md) tracks implementation order, test evidence, and the next handoff.
+
+### Run an isolated Node test
+
+On Linux with rootless Podman and cgroup v2, prepare the pinned Node image once. Select a self-contained committed ES module test from a repository you control. Perry runs its merge-base and head versions separately and prints both outcomes.
+
+```sh
+podman pull docker.io/library/node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
+pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_HEAD_SHA --test tests/total.test.mjs
+```
+
+This profile supports one test file and Node built-ins. Workspace imports, package installation and service dependencies need a later execution profile. A missing runtime or image produces an unavailable result.
 
 ### CLI login mode
 

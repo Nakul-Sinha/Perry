@@ -32,6 +32,7 @@ export interface Inspection {
 }
 
 export interface ReportInput {
+  checksRun?: string[];
   snapshot: Pick<Snapshot, "base" | "head" | "merge_base"> | null;
   inspection: Inspection;
   assessment: "completed" | "partial" | "failed" | "canceled" | "stale" | "unassessed";

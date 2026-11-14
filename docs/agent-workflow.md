@@ -45,7 +45,7 @@ These modules initially live together in the runner so agents can exercise them 
 
 Run `pnpm review:fixture` and `pnpm review:fixture clean` from the root. Both use real commits and the public local CLI. The broken case must identify the dangling npm script, invalid module syntax, and a missing export from an unchanged module at their pinned lines. The clean case changes the same files and must return zero findings. The `unsupported` and `missing` fixtures must produce provisional 0/10 reports. A failed snapshot acquisition also exits with status 1.
 
-The implementation uses Node's built-in test runner for this first deterministic suite and Acorn for static ES module declarations. The local command assumes a developer-selected Git store with trusted metadata. It inspects regular committed source only. It has no provider connection, application test sandbox, or GitHub identity.
+The implementation uses Node's built-in test runner for this deterministic suite and Acorn for static ES module declarations. The local command assumes a developer-selected Git store with trusted metadata. It reads regular committed source. The optional `--test` profile runs a single self-contained Node test for each pinned revision under rootless Podman. The separate Linux sandbox CI job exercises success, failure, deadlines, effective resource limits and container disposal.
 
 Next assignments can start in parallel:
 

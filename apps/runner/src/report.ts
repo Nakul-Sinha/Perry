@@ -134,6 +134,7 @@ export function renderReport(input: ReportInput) {
   if (inspection.limitations.length) {
     bugs.push("Limitations\n\n" + inspection.limitations.map(item => `- ${prose(item)}`).join("\n"));
   }
+  if (input.checksRun?.length) bugs.push("Runtime evidence\n\n" + input.checksRun.map(item => "- " + prose(item)).join("\n"));
   return {
     summary: summary.join("\n\n"),
     findings: bugs.join("\n\n"),
