@@ -62,11 +62,12 @@ async function run(args: string[]) {
     let assessment: ReportInput["assessment"] = "unassessed";
     if (!coverage.length) assessment = "completed";
     else if (checked || findings.length) assessment = "partial";
+    const checksRun = options.test ? await testEvidence(snapshot, options.test) : undefined;
     const model = options["anthropic-model"];
     if (model) {
       const context = await collectContext(snapshot);
-      const reviewed = await investigate(context.files, anthropicBackend(model));
-      limitations[0] = "Local preview. Application behavior and live GitHub prerequisites remain partially assessed.";
+      const reviewed = await investigate(context.files, anthropicBackend(model), checksRun);
+      limitations[0] = "Local preview with bounded source and no live GitHub prerequisites.";
       limitations.push("Requested Anthropic model: " + model + ".", ...context.limitations, ...reviewed.limitations);
       for (const finding of reviewed.findings) {
         if (!findings.some(other => other.evidence.path === finding.evidence.path
@@ -90,7 +91,7 @@ async function run(args: string[]) {
       assessment,
       inspection: { coverage, findings, changes: [...manifest.changes, ...modules.changes], limitations },
     };
-    if (options.test) input.checksRun = await testEvidence(snapshot, options.test);
+    if (checksRun) input.checksRun = checksRun;
   } catch (error) {
     // Only snapshot acquisition errors have diagnostics written for the user.
     const reason = !snapshot && error instanceof Error ? error.message : "Local inspection could not finish.";

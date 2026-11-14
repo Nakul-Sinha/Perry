@@ -21,6 +21,18 @@ const accepted = { index: 0, verdict: "accept", reason: "The approved plan still
 const draft = (candidates: unknown[]) => JSON.stringify({ candidates, incomplete: false });
 const verified = (...decisions: unknown[]) => JSON.stringify({ decisions });
 
+test("both model passes receive the same independent check outcomes", async () => {
+  const evidence = ["Pinned base passed.", "Pinned head failed."];
+  const roles: string[] = [];
+  const review = await investigate(source, async (role, payload) => {
+    roles.push(role);
+    assert.deepEqual(JSON.parse(payload).checksRun, evidence);
+    return role === "investigator" ? draft([item]) : verified(accepted);
+  }, evidence);
+  assert.deepEqual(roles, ["investigator", "verifier"]);
+  assert.equal(review.findings.length, 1);
+});
+
 test("the Anthropic SDK sends independent requests to the selected model and rejects truncated replies", async t => {
   // This process uses an in-process HTTP transport and a public fixture value.
   t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {

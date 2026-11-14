@@ -89,7 +89,7 @@ function candidate(value: unknown, files: ContextFile[]): Candidate | undefined 
   if (proof) return { title: value.title, trigger: value.trigger, impact: value.impact, fix: value.fix, severity: value.severity as Severity, ...proof };
 }
 
-export async function investigate(context: ContextFile[], call: Call): Promise<{ findings: Finding[]; limitations: string[]; assessed: boolean }> {
+export async function investigate(context: ContextFile[], call: Call, checksRun?: string[]): Promise<{ findings: Finding[]; limitations: string[]; assessed: boolean }> {
   const findings: Finding[] = [];
   const gaps = new Set<string>();
   let assessed = false;
@@ -116,7 +116,7 @@ export async function investigate(context: ContextFile[], call: Call): Promise<{
   }
 
   async function request(role: Role, claims?: object[]) {
-    const payload = JSON.stringify({ files: context, claims });
+    const payload = JSON.stringify({ files: context, claims, checksRun });
     if (Buffer.byteLength(payload) > maxPayload) throw new Error();
     return readReply(await call(role, payload));
   }
