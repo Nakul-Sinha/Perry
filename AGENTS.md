@@ -1,5 +1,7 @@
 # Project rules
 
+Follow the [agent workflow](docs/agent-workflow.md) for milestone order, file ownership, verification and handoff.
+
 - Never use em dashes or emojis in repository files, commits, pull requests, or other project writing.
 - Do not add coauthor trailers, tool attribution, generated-by notes, or statements about which assistant helped build the project.
 - Keep commit subjects concise and technical, using three or four words. Describe the actual change in a natural tone; avoid vague or overly casual wording.
