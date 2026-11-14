@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.cache/
+.perry/
+*.tsbuildinfo
+*.log
+logs/
+work/
+outputs/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+Thumbs.db
