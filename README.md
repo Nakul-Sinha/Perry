@@ -1,10 +1,9 @@
 # Perry
 
-Hey, This is Perry, A code review tool i'm building
+Hiii, This is Perry, A code review and audit tool i'm building
 
-Perry will review pull requests using the surrounding repository, planning files, tests, and relevant history. Mention `@Perry review` in a PR to get a concise review, a rating out of 10, a merge recommendation, and bugs with suggested fixes. You will also be able to ask questions in the PR conversation.
+Perry reviews ur PRs using the surrounding repository elements, planning files, tests, and relevant history. Mention `@Perry review` in a PR to get a concise review, a rating out of 10, a merge recommendation, and bugs with suggested fixes. You will also be able to ask questions in the PR conversation. Let Perry be senior Software Dev that finds your mistakes and guides u through them :) 
 
-This repo is the starting scaffold. The features below are being built and are not available as a working review service yet.
 
 ## Features
 
@@ -19,11 +18,10 @@ This repo is the starting scaffold. The features below are being built and are n
 - Eligible local Claude Code or Codex CLI connections using the user's own supported login.
 - Clear coverage limits, usage limits, and stale-review handling.
 
-The rating measures merge readiness. A 10/10 is not a promise of bug-free code, and Perry will not automatically modify or merge your PR.
+The rating measures merge readiness. A 10/10 is not a promise of bug-free code, and Perry will not automatically modify or merge your PR it will suggest you and  you will decide what to do.
 
 ### V2: possible additions
 
-- More language and framework support.
 - Inline review conversations and optional automatic re-reviews.
 - Suggested fix patches and configurable review checks.
 - GitLab and Bitbucket integrations.
@@ -34,7 +32,6 @@ The rating measures merge readiness. A 10/10 is not a promise of bug-free code, 
 - Managed execution environments and scheduled audits.
 - Optional fix PRs with human approval.
 
-These are possibilities, not release commitments. The [project idea](docs/project%20idea.md) and [implementation plan](docs/plan.md) describe the current scope.
 
 ## Local setup
 
