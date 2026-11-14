@@ -5,10 +5,11 @@ import { inspectModules } from "./module-syntax.ts";
 import { inspectImports } from "./module-imports.ts";
 import { renderReport } from "./report.ts";
 import { openSnapshot } from "./snapshot.ts";
+import { testEvidence } from "./test-evidence.ts";
 
 const usage = [
   "Usage: pnpm review:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id>",
-  "Read a local Git comparison and print the two proposed PR comments.",
+  "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
 ].join("\n");
 
 // A local Git object proves which bytes were inspected. It cannot establish
@@ -28,7 +29,7 @@ async function run(args: string[]) {
     if (args[0] !== "review") throw new Error();
     options = parseArgs({
       args: args.slice(1), allowPositionals: false,
-      options: { repo: { type: "string" }, base: { type: "string" }, head: { type: "string" } },
+      options: { repo: { type: "string" }, base: { type: "string" }, head: { type: "string" }, test: { type: "string" } },
     }).values;
     if (!options.repo || !options.base || !options.head) throw new Error();
   } catch {
@@ -49,7 +50,7 @@ async function run(args: string[]) {
     const coverage = [...manifest.coverage, ...modules.coverage];
     const checked = coverage.some(entry => entry.disposition === "checked");
     const findings = [...manifest.findings, ...modules.findings, ...imports.findings];
-    const limitations = ["Local static preview. Application behavior, repository plans and live GitHub checks were not reviewed."];
+    const limitations = ["Local preview. Full application behavior, repository plans and live GitHub checks were not reviewed."];
     limitations.push(...manifest.limitations, ...modules.limitations, ...imports.limitations);
     if (!coverage.length) limitations.push("The merge base and head have identical tracked trees.");
     let assessment: ReportInput["assessment"] = "unassessed";
@@ -60,6 +61,7 @@ async function run(args: string[]) {
       assessment,
       inspection: { coverage, findings, changes: [...manifest.changes, ...modules.changes], limitations },
     };
+    if (options.test) input.checksRun = await testEvidence(snapshot, options.test);
   } catch (error) {
     // Only snapshot acquisition errors have diagnostics written for the user.
     const reason = !snapshot && error instanceof Error ? error.message : "Local inspection could not finish.";
