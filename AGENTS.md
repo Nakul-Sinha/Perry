@@ -6,6 +6,7 @@ Follow the [agent workflow](docs/agent-workflow.md) for milestone order, file ow
 - Do not add coauthor trailers, tool attribution, generated-by notes, or statements about which assistant helped build the project.
 - Keep commit subjects concise and technical, using three or four words. Describe the actual change in a natural tone; avoid vague or overly casual wording.
 - Keep pull request descriptions casual and concise: two or three lines explaining the change, followed by bullets listing what was implemented.
+- Describe only the implemented change in commits and PR descriptions. Keep workflow step numbers and milestone or feature IDs out of both.
 - Keep the repository organized and minimal. Group supporting files in appropriate directories and ignore local state, build output, dependencies, and temporary files.
 - Describe unfinished features honestly. Do not advertise commands or integrations that do not exist.
 

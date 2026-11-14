@@ -5,7 +5,7 @@ Start with the [product specification](project%20idea.md), the [implementation p
 ## Working on a change
 
 1. Fetch the current default branch, inspect the working tree and recent changes, and branch from the latest agreed base. Preserve edits already made by contributors.
-2. Pick one row in the build order below. Record the milestone, product feature IDs, files you own, assumptions, dependency on another agent, and observable exit check in the task or PR. Read the corresponding plan sections before choosing libraries or interfaces.
+2. Pick one row in the build order below. Record the milestone, product feature IDs, files you own, assumptions, dependency on another agent, and observable exit check in the working task. Keep tracking IDs out of commit subjects, commit bodies and PR descriptions. Read the corresponding plan sections before choosing libraries or interfaces.
 3. Agree on the boundary before parallel work. Write down the inputs, outputs, trustworthy source of each field, how missing data is represented, and who will run the integration test. Give one agent ownership of each file. The integrator owns shared entry points, manifests, lockfile, CI and the final diff.
 4. Build one behavior through its real entry point. Start with a small counterexample and a nearby example that should still work. Keep fixtures free of credentials and private source. Record whether a check inspected source, actually exercised behavior, or used a simulated external dependency.
 5. Hand back the changed paths, command to exercise the feature, observed result, failure cases tested, and remaining gaps. Flag contract changes before editing a sibling's module. Ask a fresh reviewer to try to disprove findings using the adjacent clean case.

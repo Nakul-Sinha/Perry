@@ -57,6 +57,16 @@ test("several callers of one removed script produce one root cause", async () =>
   assert.equal(result.findings.length, 1);
 });
 
+test("equivalent prior npm invocations cannot introduce an existing missing target", async () => {
+  const after = blob(manifest({ check: "npm run lint" }));
+  for (const previous of ["npm run-script lint", 'npm run "lint"', "npm run lint --"]) {
+    const broken = await inspect(snapshot(blob(manifest({ check: previous })), after));
+    assert.deepEqual(broken.findings, []);
+    const working = await inspect(snapshot(blob(manifest({ check: previous, lint: "tsc" })), after));
+    assert.equal(working.findings.length, 1);
+  }
+});
+
 test("pre-existing defects and valid peers stay quiet", async () => {
   for (const [before, after] of [
     [{ ch: "npm run absent" }, { ch: " npm  run absent ", ok: "echo ok" }],

@@ -5,6 +5,9 @@ const manifestBudget = 32;
 const scriptBudget = 128;
 const implicitScripts = new Set(["env", "restart", "start", "install"]);
 const directRun = /^[ \t]*npm[ \t]+run[ \t]+([A-Za-z0-9][A-Za-z0-9_:.-]{0,95})[ \t]*$/;
+// Historical aliases, simple quoting and an empty argument separator can
+// already have invoked the missing script before the change.
+const priorRun = /^[ \t]*npm[ \t]+(?:run|run-script)[ \t]+(["']?)([A-Za-z0-9][A-Za-z0-9_:.-]{0,95})\1(?:[ \t]+--)?[ \t]*$/;
 const simpleName = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,95}$/;
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -81,7 +84,8 @@ function inspectScripts(
     const target = targetOf(script);
     if (!target || implicitScripts.has(target) || Object.hasOwn(after, target) || !simpleName.test(caller)) continue;
     if (after[`pre${caller}`]) continue; // A pre-hook can change the manifest before npm runs again.
-    if (targetOf(before[caller]) === target && typeof before[target] !== "string") continue;
+    const prior = before[caller];
+    if (typeof prior === "string" && priorRun.exec(prior)?.[2] === target && typeof before[target] !== "string") continue;
     const line = lines.get(caller);
     if (!line || findings.has(target)) continue;
     findings.set(target, {
