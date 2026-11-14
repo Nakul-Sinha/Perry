@@ -35,18 +35,30 @@ The rating measures merge readiness. A 10/10 is not a promise of bug-free code, 
 
 ## Local setup
 
-For scaffold development, install [Git](https://git-scm.com/downloads) and [Node.js 24 LTS](https://nodejs.org/en/download), then run:
+The first working feature is a local review preview. It reads committed source, compares it with the merge base, and prints the summary and bugs comments to your terminal. Install [Git](https://git-scm.com/downloads) (tested with 2.49) and [Node.js 24 LTS](https://nodejs.org/en/download), then run:
 
 ```sh
 npm install --global pnpm@12.18.0
 git clone https://github.com/Nakul-Sinha/Perry.git
 cd Perry
-pnpm install
+pnpm install --frozen-lockfile
 pnpm typecheck
+pnpm test
 pnpm build
+pnpm review:fixture
 ```
 
-These commands check the scaffold. GitHub App setup, live reviews, and model connections are still being implemented.
+The fixture removes a script that another script still calls, introduces a syntax error, and imports a name that an unchanged module never exported. Try `pnpm review:fixture clean` for the matching control. Both commands use temporary Git commits and work without an account or API key.
+
+To review a real change, run this from Perry's checkout. Replace the path and both IDs with your values. Get the IDs with `git rev-parse <branch>` inside the repository you want to review.
+
+```sh
+pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_HEAD_SHA
+```
+
+Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. It ignores working-tree edits and lists gaps in coverage. Application tests, model-backed investigation, GitHub comments and account pairing are upcoming. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
+
+The [agent workflow](docs/agent-workflow.md) tracks implementation order, test evidence, and the next handoff.
 
 ### CLI login mode
 
