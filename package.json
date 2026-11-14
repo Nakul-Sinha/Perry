@@ -2,6 +2,7 @@
   "name": "perry",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "A code review tool in progress.",
   "packageManager": "pnpm@12.18.0",
   "engines": {
@@ -10,6 +11,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
+    "test": "node --test \"apps/runner/test/*.test.ts\"",
+    "review:local": "node apps/runner/src/index.ts review",
+    "review:fixture": "node tools/fixtures/review.ts",
     "dev:control": "pnpm --filter @perry/control dev",
     "dev:runner": "pnpm --filter @perry/runner dev"
   },
