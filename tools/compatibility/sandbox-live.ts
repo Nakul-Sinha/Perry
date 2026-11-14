@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { runSandboxCheck } from "../../apps/runner/src/sandbox.ts";
+import { execFileSync, spawnSync } from "node:child_process";
+import { checkProfile, runSandboxCheck } from "../../apps/runner/src/sandbox.ts";
 
 const image = process.argv[2];
 if (!image || process.argv.length !== 3) throw new Error("Usage: node tools/compatibility/sandbox-live.ts <pinned-node-image>");
@@ -40,6 +40,15 @@ const cases = [
 ];
 for (const check of cases) {
   const result = await runSandboxCheck(check.source, image, check.timeout);
+  if (result.status !== check.status && check.source === resources) {
+    // Only the fixed compatibility probe can print diagnostics on this runner.
+    // The production execution path discards all repository-controlled output.
+    const [, ...args] = checkProfile("perry-compat-probe", image, 10000);
+    const probe = spawnSync("podman", ["--remote=false", "run", ...args], {
+      input: resources, encoding: "utf8", timeout: 15000, maxBuffer: 16384,
+    });
+    console.error("Compatibility probe", probe.status, probe.stdout, probe.stderr);
+  }
   assert.equal(result.status, check.status, result.detail);
   assert.equal(containers(), "", "Podman retained a container after " + check.status);
   console.log(check.status + " verified, container disposed");

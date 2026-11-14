@@ -61,8 +61,7 @@ function podman(args: string[], timeout: number, source?: string): Promise<Comma
   });
 }
 
-/** Execute one owner-selected, self-contained Node test blob. No checkout is mounted. */
-export async function runSandboxCheck(source: string, image: string, timeoutMs = 10000): Promise<SandboxResult> {
+function validateCheck(source: string, image: string, timeoutMs: number): SandboxResult | undefined {
   if (!digest.test(image) || image.length !== "docker.io/library/node@sha256:".length + 64) {
     return unavailable("Select a preloaded official Node image by its exact sha256 digest.");
   }
@@ -75,13 +74,10 @@ export async function runSandboxCheck(source: string, image: string, timeoutMs =
   if (process.platform !== "linux" || process.getuid?.() === 0) {
     return unavailable("Run this check as a non-root user on Linux with rootless Podman.");
   }
-  const info = await podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], 10000);
-  if (info.code !== 0 || info.output !== "true v2") {
-    return unavailable("Rootless local Podman with cgroup v2 is required.");
-  }
+}
 
-  const name = "perry-check-" + randomUUID();
-  const create = [
+export function checkProfile(name: string, image: string, timeoutMs: number) {
+  return [
     "create", "--name", name, "--rm", "--interactive", "--pull=never",
     "--network=none", "--pid=private", "--ipc=private", "--cgroupns=private",
     "--user=65534:65534", "--read-only", "--read-only-tmpfs=false", "--image-volume=ignore",
@@ -93,6 +89,18 @@ export async function runSandboxCheck(source: string, image: string, timeoutMs =
     "--entrypoint=/usr/local/bin/node", image,
     "--import=data:text/javascript," + encodeURIComponent(preflight), "--test", "--input-type=module", "-",
   ];
+}
+
+/** Execute one owner-selected, self-contained Node test blob. No checkout is mounted. */
+export async function runSandboxCheck(source: string, image: string, timeoutMs = 10000): Promise<SandboxResult> {
+  const invalid = validateCheck(source, image, timeoutMs);
+  if (invalid) return invalid;
+  const info = await podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], 10000);
+  if (info.code !== 0 || info.output !== "true v2") {
+    return unavailable("Rootless local Podman with cgroup v2 is required.");
+  }
+  const name = "perry-check-" + randomUUID();
+  const create = checkProfile(name, image, timeoutMs);
   let result = unavailable("Podman could not create the check with the pinned image and required limits.");
   try {
     const created = await podman(create, 15000);
