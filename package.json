@@ -14,6 +14,7 @@
     "test": "node --test \"apps/runner/test/*.test.ts\"",
     "review:local": "node apps/runner/src/index.ts review",
     "review:fixture": "node tools/fixtures/review.ts",
+    "check:model": "node tools/compatibility/model-live.ts",
     "dev:control": "pnpm --filter @perry/control dev",
     "dev:runner": "pnpm --filter @perry/runner dev"
   },
