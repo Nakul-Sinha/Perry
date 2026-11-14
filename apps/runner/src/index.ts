@@ -6,10 +6,13 @@ import { inspectImports } from "./module-imports.ts";
 import { renderReport } from "./report.ts";
 import { openSnapshot } from "./snapshot.ts";
 import { testEvidence } from "./test-evidence.ts";
+import { collectContext } from "./model-context.ts";
+import { anthropicBackend, investigate } from "./model-review.ts";
 
 const usage = [
   "Usage: pnpm review:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id>",
   "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
+  "Add --anthropic-model <id> to send selected committed source to the Anthropic API.",
 ].join("\n");
 
 // A local Git object proves which bytes were inspected. It cannot establish
@@ -29,7 +32,10 @@ async function run(args: string[]) {
     if (args[0] !== "review") throw new Error();
     options = parseArgs({
       args: args.slice(1), allowPositionals: false,
-      options: { repo: { type: "string" }, base: { type: "string" }, head: { type: "string" }, test: { type: "string" } },
+      options: {
+        repo: { type: "string" }, base: { type: "string" }, head: { type: "string" },
+        test: { type: "string" }, "anthropic-model": { type: "string" },
+      },
     }).values;
     if (!options.repo || !options.base || !options.head) throw new Error();
   } catch {
@@ -56,12 +62,36 @@ async function run(args: string[]) {
     let assessment: ReportInput["assessment"] = "unassessed";
     if (!coverage.length) assessment = "completed";
     else if (checked || findings.length) assessment = "partial";
+    const checksRun = options.test ? await testEvidence(snapshot, options.test) : undefined;
+    const model = options["anthropic-model"];
+    if (model) {
+      const context = await collectContext(snapshot);
+      const reviewed = await investigate(context.files, anthropicBackend(model), checksRun);
+      limitations[0] = "Local preview with bounded source and no live GitHub prerequisites.";
+      limitations.push("Requested Anthropic model: " + model + ".", ...context.limitations, ...reviewed.limitations);
+      for (const finding of reviewed.findings) {
+        if (!findings.some(other => other.evidence.path === finding.evidence.path
+          && other.evidence.line === finding.evidence.line && other.title === finding.title)) {
+          findings.push(finding);
+        }
+      }
+      if (reviewed.assessed) {
+        const seen = new Set(context.files.filter(file => file.ref === "head" && file.changed).map(file => file.path));
+        for (const entry of coverage) {
+          if (entry.disposition === "incomplete" && seen.has(entry.path)) {
+            entry.disposition = "checked";
+            entry.reason = "Included in the bounded model investigation.";
+          }
+        }
+        if (seen.size) assessment = "partial";
+      }
+    }
     input = {
       snapshot, readiness: localReadiness,
       assessment,
       inspection: { coverage, findings, changes: [...manifest.changes, ...modules.changes], limitations },
     };
-    if (options.test) input.checksRun = await testEvidence(snapshot, options.test);
+    if (checksRun) input.checksRun = checksRun;
   } catch (error) {
     // Only snapshot acquisition errors have diagnostics written for the user.
     const reason = !snapshot && error instanceof Error ? error.message : "Local inspection could not finish.";

@@ -10,6 +10,7 @@ export interface Snapshot {
   merge_base: string;
   changes: { path: string; previousPath?: string; status: "added" | "modified" | "deleted" | "type_changed" }[];
   read(ref: Revision, path: string): Promise<BlobRead>;
+  listPaths?(ref: Revision): Promise<string[]>;
 }
 
 export type Severity = "low" | "medium" | "high" | "critical";

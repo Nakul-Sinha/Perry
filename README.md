@@ -91,7 +91,14 @@ These commands sign in to the provider, not Perry. Connecting that session to Pe
 
 ### Bring your own key
 
-The planned BYOK flow lets you select Anthropic, OpenAI, or an eligible OpenCode endpoint and configure your own API access locally. API usage is billed by the selected provider. Do not put keys in the repo, comments, or planning files.
+The local runner has an opt-in Anthropic Messages API adapter. Supply `ANTHROPIC_API_KEY` to the Perry process through your local secret store. Pick a model ID available to your Anthropic account. Provider usage is billed to that account. These examples run against synthetic Git history:
+
+```sh
+pnpm review:fixture empty-cart --anthropic-model MODEL_ID
+pnpm review:fixture cart-refactor --anthropic-model MODEL_ID
+```
+
+For your own checkout, add the same flag to `pnpm review:local`. The option sends selected committed source, approved base plans and related callers to Anthropic. Static-only reviews stay local. Perry checks model citations against both revisions and sends candidate findings to a fresh verifier. Reports identify unavailable or incomplete model responses. The adapter has automated transport and verification tests. Live account acceptance is pending. OpenAI and OpenCode adapters and native CLI connections are planned.
 
 Until the connection flow ships, you can give your coding agent this prompt:
 
