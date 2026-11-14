@@ -86,8 +86,9 @@ export function checkProfile(name: string, image: string, timeoutMs: number) {
     "--memory=256m", "--memory-swap=256m", "--cpus=1", "--pids-limit=48", "--shm-size=8m",
     "--http-proxy=false", "--unsetenv-all", "--log-driver=none",
     "--timeout=" + (Math.ceil(timeoutMs / 1000) + 2), "--stop-timeout=0",
-    "--entrypoint=/usr/local/bin/node", image,
-    "--import=data:text/javascript," + encodeURIComponent(preflight), "--test", "--input-type=module", "-",
+    "--entrypoint=/bin/sh", image, "-ec",
+    'umask 077; cat > /tmp/check.test.mjs; exec /usr/local/bin/node "$1" --test /tmp/check.test.mjs',
+    "perry-test", "--import=data:text/javascript," + encodeURIComponent(preflight),
   ];
 }
 
