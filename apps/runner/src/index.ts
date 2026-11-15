@@ -14,6 +14,7 @@ const usage = [
   "Usage: pnpm review:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id>",
   "       pnpm ask:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id> --question <text>",
   "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
+  "Add --module <path.mjs> with --test to include one committed dependency.",
   "Add --anthropic-model <id> to send selected committed source to the Anthropic API.",
 ].join("\n");
 
@@ -36,12 +37,13 @@ async function run(args: string[]) {
       args: args.slice(1), allowPositionals: false,
       options: {
         repo: { type: "string" }, base: { type: "string" }, head: { type: "string" },
-        test: { type: "string" }, "anthropic-model": { type: "string" },
+        test: { type: "string" }, module: {type: "string"}, "anthropic-model": { type: "string" },
         json: { type: "boolean" }, question: { type: "string" },
       },
     }).values;
     if (!options.repo || !options.base || !options.head) throw new Error();
     if (args[0] === "ask" && !options.question) throw new Error();
+    if ((options.module && !options.test) || (args[0] === "ask" && options.test)) throw new Error();
   } catch {
     console.error(usage);
     return 2;
@@ -71,7 +73,7 @@ async function run(args: string[]) {
     let assessment: ReportInput["assessment"] = "unassessed";
     if (!coverage.length) assessment = "completed";
     else if (checked || findings.length) assessment = "partial";
-    const checksRun = options.test ? await testEvidence(snapshot, options.test) : undefined;
+    const checksRun = options.test ? await testEvidence(snapshot, options.test, undefined, options.module) : undefined;
     const model = options["anthropic-model"];
     if (model) {
       const context = await collectContext(snapshot);
