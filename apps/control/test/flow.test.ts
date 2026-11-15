@@ -71,8 +71,9 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   const comments = new Map<string, {id: string; body: string}>();
   let runs = 0;
   let permission = true;
+  let sameRepository = true;
   const github = {
-    async authorize() { return permission; }, async refs() { return {base, head}; },
+    async authorize() { return permission; }, async refs() { return {base, head, sameRepository}; },
     async writeSlot(r: MentionRequest, slot: CommentSlot, body: string, receipt?: string, create = true,
       _signal?: AbortSignal, beforeWrite?: () => Promise<void>) {
       const name = slot === "answer" ? slot + r.commentId : slot;
@@ -121,6 +122,12 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   await send(14, "@Perry review");
   await work();
   assert.equal(runs, 3);
+  permission = true;
+  sameRepository = false;
+  await send(15, "@Perry review");
+  await work();
+  assert.match(comments.get("findings")!.body, /runtime check was skipped/);
+  assert.doesNotMatch(comments.get("summary")!.body + comments.get("findings")!.body, /file absent/);
 });
 
 test("only operator-selected repository paths describe the runtime check", () => {

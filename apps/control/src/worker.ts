@@ -2,7 +2,7 @@ import type { CommentSlot, GitHubGateway } from "./github.ts";
 import type { MentionRequest } from "./intake.ts";
 import type { Job } from "./store.ts";
 
-export interface Refs { base: string; head: string }
+export interface Refs { base: string; head: string; sameRepository?: boolean }
 export interface Observation extends Refs { closed: boolean }
 export type Bodies = { summary: string; findings: string } | { answer: string };
 type Assessment = { refs: Refs; bodies: Bodies };

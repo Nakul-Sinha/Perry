@@ -142,24 +142,27 @@ export class GitHubGateway {
     await this.publish(r, slot, body, id, false, signal);
   }
 
-  async refs(r: MentionRequest, signal?: AbortSignal): Promise<{ base: string; head: string } | null> {
+  async refs(r: MentionRequest, signal?: AbortSignal): Promise<Refs | null> {
     try {
       signal?.throwIfAborted();
       const api = await this.client(r, signal);
       const repo = { owner: r.owner, repo: r.repo, request: signal ? { signal } : {} };
       let head, base;
+      let sameRepository = false;
       if (r.isPR) {
         const { data: pr } = await api.rest.pulls.get({ ...repo, pull_number: r.number });
         if (pr.state !== "open" || pr.number !== r.number || String(pr.base.repo.id) !== r.repoId) return null;
         base = pr.base.sha;
         head = pr.head.sha;
+        sameRepository = String(pr.head.repo?.id) === r.repoId;
       } else {
         const { data: repository } = await api.rest.repos.get(repo);
         if (String(repository.id) !== r.repoId) return null;
         const { data: branch } = await api.rest.repos.getBranch({ ...repo, branch: repository.default_branch });
         base = head = branch.commit.sha;
       }
-      return [base, head].every(sha => /^[a-f0-9]{40}$/.test(sha)) ? { base, head } : null;
+      if (![base, head].every(sha => /^[a-f0-9]{40}$/.test(sha))) return null;
+      return r.isPR ? { base, head, sameRepository } : { base, head };
     } catch (error) {
       if (status(error) === 404 || status(error) === 410) return null;
       throw new Error("GitHub source revisions are unavailable.");

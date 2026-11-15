@@ -96,7 +96,7 @@ function validateCheck(source: string, image: string, timeoutMs: number): Sandbo
 export function checkProfile(name: string, image: string, timeoutMs: number, moduleCheck?: ModuleCheck) {
   const runtimeChecks = "--import=data:text/javascript," + encodeURIComponent(preflight);
   const launch = moduleCheck
-    ? ['umask 077; /usr/local/bin/node --input-type=module -e "$1" "$2" "$3" && exec /usr/local/bin/node "$4" --test "$2"',
+    ? ['umask 077; /usr/local/bin/node --input-type=module -e "$1" "$2" "$3" || exit 78; exec /usr/local/bin/node "$4" --test "$2"',
       "perry-test", stageFiles, "/tmp/source/" + moduleCheck.testPath, "/tmp/source/" + moduleCheck.modulePath, runtimeChecks]
     : ['umask 077; cat > /tmp/check.test.mjs; exec /usr/local/bin/node "$1" --test /tmp/check.test.mjs', "perry-test", runtimeChecks];
   return [

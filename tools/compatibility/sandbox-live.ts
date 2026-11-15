@@ -60,6 +60,14 @@ for (const check of cases) {
 }
 
 assert.equal(image, nodeImage);
+const [, ...stageArgs] = checkProfile("perry-check-stage-fixture", image, 10000, {
+  testPath: "test/cart.test.mjs", modulePath: "src/cart.mjs", moduleSource: "",
+});
+const stageFailure = spawnSync("podman", ["--remote=false", "run", ...stageArgs], {
+  input: "incomplete fixture envelope", timeout: 15000, stdio: ["pipe", "ignore", "ignore"],
+});
+assert.equal(stageFailure.status, 78, "Staging errors must be distinct from node --test failures.");
+assert.equal(containers(), "");
 const repo = mkdtempSync(join(tmpdir(), "perry-module-check-"));
 try {
   const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], {encoding: "utf8", env: {

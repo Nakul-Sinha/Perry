@@ -46,7 +46,7 @@ function gateway(override?: (req: Request, url: URL) => Promise<Response | undef
       if (route === "GET " + path) return Response.json(repo);
       if (route.endsWith("/collaborators/maintainer/permission")) return Response.json({ permission: "write", user: sender });
       if (route.endsWith("/issues/comments/11")) return Response.json(realComment);
-      if (route === "GET " + path + "/pulls/3") return Response.json({ state: "open", number: 3, base: { sha: a, repo }, head: { sha: b } });
+      if (route === "GET " + path + "/pulls/3") return Response.json({ state: "open", number: 3, base: { sha: a, repo }, head: { sha: b, repo } });
       if (route.endsWith("/branches/trunk")) return Response.json({ commit: { sha: a } });
       throw new Error("Unexpected fixture route " + route);
     },
@@ -73,7 +73,13 @@ test("authorization binds current repo access, effective permission, actor, thre
 
 test("PR refs and issue refs are pinned separately, and closed PRs decline review", async () => {
   const { client } = gateway();
-  assert.deepEqual(await client.refs(trigger), { base: a, head: b });
+  assert.deepEqual(await client.refs(trigger), { base: a, head: b, sameRepository: true });
+  for (const headRepo of [{id: 42}, null]) {
+    const external = gateway((_req, url) => url.pathname.endsWith("/pulls/3") ? Response.json({
+      state: "open", number: 3, base: {sha: a, repo}, head: {sha: b, repo: headRepo},
+    }) : undefined);
+    assert.deepEqual(await external.client.refs(trigger), {base: a, head: b, sameRepository: false});
+  }
   assert.deepEqual(await client.refs({...trigger, isPR: false, kind: "question"}), {base: a, head: a});
   const closed = gateway((_req, url) => url.pathname.endsWith("/pulls/3") ? Response.json({ state: "closed" }) : undefined);
   assert.equal(await closed.client.refs(trigger), null);
