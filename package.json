@@ -16,6 +16,7 @@
     "ask:local": "node apps/runner/src/index.ts ask",
     "review:fixture": "node tools/fixtures/review.ts",
     "check:model": "node tools/compatibility/model-live.ts",
+    "check:baseline": "node tools/evaluation/static-baseline.ts",
     "dev:control": "pnpm --filter @perry/control dev",
     "dev:runner": "pnpm --filter @perry/runner dev"
   },
