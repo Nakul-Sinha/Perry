@@ -25,7 +25,7 @@ Only `issue_comment` events with action `created` are processed. The mention mus
 ## Operator prerequisites
 
 - Git and Node.js 24, with dependencies installed using the repository's pinned pnpm version.
-- A dedicated PostgreSQL database. Startup creates the pilot's `perry_deliveries`, `perry_mentions`, and `perry_slots` tables; the configured database role needs that access.
+- A dedicated PostgreSQL database. Startup creates the pilot's `perry_deliveries`, `perry_mentions`, `perry_slots`, and `perry_review_watches` tables; the configured database role needs that access.
 - A development GitHub App installed on the selected repository. The pilot needs Metadata read, Contents read, Pull requests read, and Issues write for its current source/comment flow.
 - A maintainer-selected HTTPS webhook endpoint forwarding `/webhooks/github` to the local service. The service binds only to `127.0.0.1`; it does not provision a public endpoint or TLS termination.
 - An operator-owned cache directory outside repositories being reviewed, with restricted filesystem access and an appropriate disk quota.
@@ -84,7 +84,7 @@ The local runner inherits a limited environment, with model API access only when
 
 PR reports include a numeric rating and either `HOLD` or `DO NOT MERGE`. The service does not evaluate live CI, approvals, mergeability, or branch rules and never recommends `MERGE`. Before completing review publication it re-reads the PR's base/head and can replace the current result with a stale-review hold if the commits changed during that run.
 
-There is no automatic invalidation after later pushes or CI changes. Ask for a new review after a code change. Questions get their own reply tied to the triggering comment and do not replace the review pair.
+While the service is running, a published review becomes due for a freshness check every five minutes. Queue load and GitHub backoff can delay it. A changed base, changed head, or closed PR sets the existing summary to provisional `HOLD | 0/10` and marks its findings stale. Perry records the reviewed and observed commits. An interrupted update resumes on the same two comments. This check uses GitHub metadata only. Request a new review to assess the updated source. CI-only updates are pending. Questions keep their own replies.
 
 ## Reruns and interrupted publication
 
@@ -127,4 +127,4 @@ Set `PERRY_TEST_DATABASE_URL` through the test runtime to a dedicated disposable
 
 Live verification remains a separate maintainer task in #6: choose a private test repository and development installation, verify authorization, actual owned comments, a question reply, and redelivery/recovery. Record sanitized results. #5 separately verifies actual Anthropic review quality and billing-route acceptance on the synthetic fixture set. Neither issue closes solely because this pilot's automated tests pass.
 
-Runner pairing, automatic source synchronization, post-publication push/CI invalidation, complete readiness rules, inline conversations, managed execution, hosted overflow reports, and full retention/deletion flows remain outside this pilot. Do not expose it as a general public multi-tenant review service.
+Runner pairing, automatic source synchronization, CI readiness reconciliation, complete readiness rules, inline conversations, managed execution, hosted overflow reports, and full retention/deletion flows remain outside this pilot. Do not expose it as a general public multi-tenant review service.

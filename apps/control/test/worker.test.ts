@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { processMention, type Bodies, type Refs } from "../src/worker.ts";
+import { checkReview, processMention, type Bodies, type Observation, type Refs, type ReviewWatch } from "../src/worker.ts";
 import type { CommentSlot } from "../src/github.ts";
 import type { MentionRequest } from "../src/intake.ts";
 import type { Job } from "../src/store.ts";
@@ -75,4 +75,38 @@ test("revoked requests do no work; questions only use their answer slot", async 
   h.gateway.authorize = async () => true;
   await processMention({...request,kind:"question",text:"where is total?"}, h.job, h.gateway, async () => ({answer:"Cited answer"}));
   assert.deepEqual(h.writes, ["answer"]);
+});
+
+test("periodic checks use both SHAs, fence a pending review and resume a partial edit", async () => {
+  const changed = { ...refs, base:"c".repeat(40), closed:false };
+  const watch: ReviewWatch = {
+    request, refs, observed:null, summary:"500", findings:"501", signal:new AbortController().signal,
+    async begin(observed) { this.observed = observed; return true; },
+  };
+  const writes: string[] = [];
+  let now: Observation = {...refs, closed:false};
+  let reads = 0;
+  let reject = true;
+  const gateway = {
+    async observeReview() { reads++; return now; },
+    async invalidateSlot(_r: MentionRequest, slot: "summary"|"findings", id:string, reviewed:Refs, observed:Observation) {
+      assert.equal(id, watch[slot]);
+      assert.deepEqual(reviewed, refs);
+      assert.deepEqual(observed, changed);
+      assert.deepEqual(watch.observed, changed);
+      writes.push(slot);
+      if (slot === "findings" && reject) throw new Error("Lost update receipt");
+    },
+  };
+  assert.equal(await checkReview(watch, gateway), false);
+  now = changed;
+  assert.equal(await checkReview({...watch, begin: async () => false}, gateway), false);
+  assert.deepEqual(writes, []);
+  await assert.rejects(checkReview(watch, gateway), /Lost update/);
+  assert.deepEqual(writes, ["summary", "findings"]);
+  now = {...refs,closed:false};
+  reject = false;
+  assert.equal(await checkReview(watch, gateway), true);
+  assert.equal(reads, 3);
+  assert.deepEqual(writes, ["summary","findings","summary","findings"]);
 });

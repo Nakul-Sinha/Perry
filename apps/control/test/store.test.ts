@@ -170,4 +170,74 @@ test("PostgreSQL mention queue", { skip: !connectionString }, async t => {
     while (await other.workOne(async r => { ids.push(r.commentId); })) {}
     assert.deepEqual(ids, ["8", "9"]);
   });
+
+  await t.test("periodic watches retain ownership across retries and yield to later authorized reviews", async () => {
+    const scope = {installationId:"101", repoId:"202"};
+    const key = JSON.stringify(["101","202",61]);
+    const post = (id:string, kind: MentionRequest["kind"] = "review") => store.accept("watch-"+id, request(id,{number:61,kind}));
+    const due = () => pool.query("UPDATE perry_review_watches SET due_at = now() WHERE scope = $1", [key]);
+    const never = async () => { throw new Error("Unexpected watch callback"); };
+    const refs = {base:"a".repeat(40),head:"b".repeat(40)};
+    const changed = {...refs, head:"c".repeat(40), closed:false};
+    await post("81");
+    assert.equal(await store.workOne(async (_r,job) => {
+      for (const [slot, id] of [["summary","81"],["findings","82"]] as const) {
+        await job.markCreating(slot); await job.saveSlot(slot,id);
+      }
+      await job.saveResult({refs,bodies:{summary:"ok",findings:"ok"}});
+      return refs;
+    },scope), true);
+    assert.equal(await store.pollOne(scope, never), false);
+    await due();
+    assert.equal(await store.pollOne({...scope,repoId:"444"}, never), false);
+    // A question can run during maintenance without becoming the pair's owner.
+    await post("82","question");
+    await success(store, async () => {});
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    let fenced: boolean | undefined;
+    const first = store.pollOne(scope, async watch => {
+      entered.resolve();
+      await resume.promise;
+      fenced = await watch.begin(changed);
+      return false;
+    });
+    await entered.promise;
+    try {
+      assert.equal(await other.pollOne(scope, never), false);
+      await post("83");
+      assert.equal(await other.workOne(async () => {},scope), false);
+    } finally { resume.resolve(); }
+    assert.equal(await first,true);
+    assert.equal(fenced,false);
+    await due();
+    assert.equal(await other.pollOne(scope, never), false);
+    // An unauthorized or deleted trigger finishes without publishing a result.
+    await success(store, async () => {});
+    assert.equal(await other.pollOne(scope, async watch => {
+      assert.equal(watch.request.commentId,"81");
+      assert.equal(await watch.begin(changed),true);
+      throw new Error("Simulated ambiguous update");
+    }), true);
+    const state = await pool.query("SELECT failures, observed, due_at > now() AS waiting FROM perry_review_watches WHERE scope = $1", [key]);
+    assert.deepEqual(state.rows[0], {failures:1, observed:changed, waiting:true});
+    await post("84");
+    assert.equal(await store.workOne(async () => {},scope),false);
+    await due();
+    let repaired = false;
+    await other.pollOne(scope, async watch => {
+      assert.equal(watch.summary,"81");
+      assert.equal(watch.findings,"82");
+      assert.deepEqual(watch.observed,changed);
+      repaired = true;
+      return true;
+    });
+    assert.equal(repaired,true);
+    assert.equal(await store.pollOne(scope,never),false);
+    await store.workOne(async () => changed,scope);
+    await due();
+    let replacement = "";
+    await store.pollOne(scope,async watch => { replacement = watch.request.commentId; return false; });
+    assert.equal(replacement,"84");
+  });
 });

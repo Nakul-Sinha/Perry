@@ -181,3 +181,33 @@ test("stored IDs cannot redirect replies and question slots bind to the triggeri
   });
   assert.equal(await client.writeSlot({ ...trigger, kind: "question", text: "why?" }, "answer", "Here is the answer."), "31");
 });
+
+test("stale maintenance verifies installed repository and existing owned slot without the original trigger", async () => {
+  const signal = new AbortController().signal;
+  const observed = {base: a, head: b, closed: true};
+  let body = slot.body;
+  const {client, calls} = gateway(async (req, url) => {
+    if (url.pathname.endsWith("/pulls/3")) return Response.json({state:"closed", number:3, head:{sha:b}, base:{sha:a, repo}});
+    if (url.pathname.endsWith("/issues/comments/15")) {
+      if (req.method === "PATCH") body = (await req.json()).body;
+      return Response.json({...slot, body});
+    }
+  });
+  assert.deepEqual(await client.observeReview(trigger, signal), observed);
+  const patch = () => client.invalidateSlot(trigger, "summary", "15", {base:a,head:b}, observed, signal);
+  await patch();
+  await patch();
+  assert.ok(body.endsWith(summaryMarker));
+  assert.match(body, /HOLD \| 0\/10/);
+  assert.match(body, /pull request was closed/);
+  assert.equal(calls.filter(s => s.startsWith("PATCH ")).length, 1);
+  assert.ok(!calls.some(s => s.endsWith("/comments/11") || s.includes("/collaborators/") || s.startsWith("POST " + path)));
+  for (const deny of [
+    (_req: Request, url: URL) => url.pathname === "/installation/repositories" ? Response.json({total_count:0, repositories:[]}) : undefined,
+    (_req: Request, url: URL) => url.pathname.endsWith("/comments/15") ? Response.json({...slot,user:sender}) : undefined,
+  ]) {
+    const denied = gateway(deny);
+    await assert.rejects(denied.client.invalidateSlot(trigger, "summary", "15", {base:a,head:b}, observed, signal));
+    assert.ok(!denied.calls.some(s => s.startsWith("PATCH ") || s.startsWith("POST " + path)));
+  }
+});

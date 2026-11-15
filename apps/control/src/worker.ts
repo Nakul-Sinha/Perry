@@ -3,6 +3,7 @@ import type { MentionRequest } from "./intake.ts";
 import type { Job } from "./store.ts";
 
 export interface Refs { base: string; head: string }
+export interface Observation extends Refs { closed: boolean }
 export type Bodies = { summary: string; findings: string } | { answer: string };
 type Assessment = { refs: Refs; bodies: Bodies };
 type Gateway = Pick<GitHubGateway, "authorize" | "refs" | "writeSlot">;
@@ -63,8 +64,33 @@ export async function processMention(r: MentionRequest, job: Job, github: Gatewa
   if (!await fresh()) {
     await write("findings", "## Bugs and suggested fixes\n\n" + stale + stamp);
     await write("summary", hold(stale) + stamp);
-    return;
+    return refs;
   }
   await write("findings", bodies.findings + stamp);
   await write("summary", (await fresh() ? bodies.summary : hold(stale)) + stamp);
+  return refs;
+}
+
+export type ReviewWatch = {
+  request: MentionRequest;
+  refs: Refs;
+  observed: Observation | null;
+  summary: string;
+  findings: string;
+  signal: AbortSignal;
+  begin(observed: Observation): Promise<boolean>;
+};
+
+export async function checkReview(watch: ReviewWatch, github: Pick<GitHubGateway, "observeReview" | "invalidateSlot">) {
+  const { request, refs, signal } = watch;
+  signal.throwIfAborted();
+  const observed = watch.observed ?? await github.observeReview(request, signal);
+  if (!observed.closed && observed.head === refs.head && observed.base === refs.base) return false;
+  // Persist the first observation before touching either slot. On restart we
+  // finish that pair even if refs have since moved back to the original SHA.
+  if (!watch.observed && !await watch.begin(observed)) return false;
+  await github.invalidateSlot(request, "summary", watch.summary, refs, observed, signal);
+  signal.throwIfAborted();
+  await github.invalidateSlot(request, "findings", watch.findings, refs, observed, signal);
+  return true;
 }
