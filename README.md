@@ -70,7 +70,7 @@ Configure the pilot as described in [GitHub control](docs/github-control.md), th
 pnpm dev:control
 ```
 
-Only newly created general conversation comments are supported. Perry periodically checks the base and head of reviewed PRs. A changed commit or closed PR marks the existing pair stale. Request a new review to assess new code. CI-only changes and inline review threads are still pending. The pilot never recommends `MERGE` and does not run the optional Podman test profile from webhook requests. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
+Only newly created general conversation comments are supported. Perry periodically checks the base and head of reviewed PRs. A changed commit or closed PR marks the existing pair stale. Request a new review to assess new code. CI-only changes and inline review threads are still pending. The pilot reports `HOLD` or `DO NOT MERGE`. Operators can enable a rootless Podman check for reviews. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
 
 ### Run an isolated Node test
 
@@ -81,7 +81,9 @@ podman pull docker.io/library/node@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a5
 pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_HEAD_SHA --test tests/total.test.mjs
 ```
 
-This profile supports one test file and Node built-ins. Workspace imports, package installation and service dependencies need a later execution profile. A missing runtime or image produces an unavailable result.
+To exercise an application module, add `--module src/total.mjs` if the test imports that file. Perry copies the committed test and selected module into a fresh container for each revision, preserving their relative paths. The profile supports Node built-ins and this single dependency. The report records missing files or runtime support. A failure describes the selected test in this isolated profile.
+
+For PR mentions, configure `PERRY_TEST_PATH` and optionally `PERRY_TEST_MODULE` on the control host. See the [operator guide](docs/github-control.md).
 
 ### CLI login mode
 
