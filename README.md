@@ -70,7 +70,7 @@ Configure the pilot as described in [GitHub control](docs/github-control.md), th
 pnpm dev:control
 ```
 
-Only newly created general conversation comments are supported. Inline review threads, automatic readiness updates, and automatic re-reviews are not implemented. Request a new review after a push. The pilot never recommends `MERGE` and does not run the optional Podman test profile from webhook requests. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
+Only newly created general conversation comments are supported. Perry periodically checks the base and head of reviewed PRs. A changed commit or closed PR marks the existing pair stale. Request a new review to assess new code. CI-only changes and inline review threads are still pending. The pilot never recommends `MERGE` and does not run the optional Podman test profile from webhook requests. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
 
 ### Run an isolated Node test
 
