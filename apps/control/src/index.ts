@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { prepareCache } from "./cache.ts";
 import { GitHubGateway } from "./github.ts";
 import { webhookHandler } from "./intake.ts";
-import { runLocal } from "./local-runner.ts";
+import { approvedCheck, runLocal } from "./local-runner.ts";
 import { Store } from "./store.ts";
 import { checkReview, processMention } from "./worker.ts";
 
@@ -37,6 +37,7 @@ async function main() {
   const cache = resolve(required("PERRY_CACHE_DIR"));
   const signingSecret = required("PERRY_WEBHOOK_SECRET");
   const model = process.env.PERRY_ANTHROPIC_MODEL;
+  const check = approvedCheck(process.env.PERRY_TEST_PATH, process.env.PERRY_TEST_MODULE);
   const port = Number(process.env.PERRY_PORT ?? "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PERRY_PORT.");
   if (![installation, repository].every(id => /^[1-9]\d*$/.test(id))) throw new Error("Invalid repository or installation ID.");
@@ -79,7 +80,7 @@ async function main() {
           return processMention(request, job, github, async (r, refs, signal) => {
             const token = await github.sourceToken(r, signal);
             const repo = await prepareCache(cache, r, refs, token, signal);
-            return runLocal(repo, r, refs, signal, model);
+            return runLocal(repo, r, refs, signal, model, check);
           });
         }, scope);
         if (Date.now() >= nextPoll) {

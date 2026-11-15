@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { checkProfile, runSandboxCheck } from "../../apps/runner/src/sandbox.ts";
+import { openSnapshot } from "../../apps/runner/src/snapshot.ts";
+import { testEvidence, nodeImage } from "../../apps/runner/src/test-evidence.ts";
 
 const image = process.argv[2];
 if (!image || process.argv.length !== 3) throw new Error("Usage: node tools/compatibility/sandbox-live.ts <pinned-node-image>");
@@ -53,3 +58,41 @@ for (const check of cases) {
   assert.equal(containers(), "", "Podman retained a container after " + check.status);
   console.log(check.status + " verified, container disposed");
 }
+
+assert.equal(image, nodeImage);
+const [, ...stageArgs] = checkProfile("perry-check-stage-fixture", image, 10000, {
+  testPath: "test/cart.test.mjs", modulePath: "src/cart.mjs", moduleSource: "",
+});
+const stageFailure = spawnSync("podman", ["--remote=false", "run", ...stageArgs], {
+  input: "incomplete fixture envelope", timeout: 15000, stdio: ["pipe", "ignore", "ignore"],
+});
+assert.equal(stageFailure.status, 78, "Staging errors must be distinct from node --test failures.");
+assert.equal(containers(), "");
+const repo = mkdtempSync(join(tmpdir(), "perry-module-check-"));
+try {
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], {encoding: "utf8", env: {
+    PATH: process.env.PATH, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
+  }}).trim();
+  git("init", "--template=", "-q");
+  git("config", "user.name", "Perry Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  mkdirSync(join(repo, "src"));
+  mkdirSync(join(repo, "test"));
+  const path = "test/cart.test.mjs";
+  const modulePath = "src/cart.mjs";
+  writeFileSync(join(repo, path), "import assert from 'node:assert/strict';\nimport {total} from '../src/cart.mjs';\nassert.equal(total([]), 0);\n");
+  const revision = (source: string) => {
+    writeFileSync(join(repo, modulePath), source);
+    git("add", ".");
+    git("commit", "-qm", "update cart logic");
+    return git("rev-parse", "HEAD");
+  };
+  const base = revision("export const total = xs => xs.reduce((a,b) => a+b, 0);");
+  const head = revision("export const total = xs => xs.reduce((a,b) => a+b);");
+  writeFileSync(join(repo, modulePath), "export const total = () => 0;");
+  const notes = await testEvidence(await openSnapshot(repo, base, head), path, undefined, modulePath);
+  assert.ok(notes.some(note => note.includes(base + ": passed")), notes.join("\n"));
+  assert.ok(notes.some(note => note.includes(head + ": failed")), notes.join("\n"));
+  assert.equal(containers(), "");
+  console.log("Unchanged cart test passed at merge base and failed at head, containers disposed");
+} finally { rmSync(repo, {recursive: true, force: true}); }

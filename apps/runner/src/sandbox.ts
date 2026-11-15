@@ -9,6 +9,23 @@ export interface SandboxResult {
 const digest = /^docker\.io\/library\/node@sha256:[0-9a-f]{64}$/;
 const unavailable = (detail: string): SandboxResult => ({ status: "unavailable", detail });
 
+export interface ModuleCheck { testPath: string; modulePath: string; moduleSource: string }
+export function safeModulePath(path: string) {
+  return path.length <= 200 && path.endsWith(".mjs") && !/[^a-zA-Z0-9_./-]/.test(path)
+    && path.split("/").every(segment => /^[a-zA-Z0-9_]/.test(segment));
+}
+
+// This bootstrap receives two prevalidated paths as argv and their bytes on
+// stdin. It only writes into the new container's private tmpfs.
+const stageFiles = `
+import {readFileSync, mkdirSync, writeFileSync} from "node:fs";
+import {dirname} from "node:path";
+const files = JSON.parse(readFileSync(0, "utf8"));
+for (const [index, path] of process.argv.slice(1).entries()) {
+  mkdirSync(dirname(path), {recursive: true});
+  writeFileSync(path, files[index], {flag: "wx"});
+}`;
+
 // This preflight runs before the source is loaded. It also catches rootless
 // engines that warn about unsupported limits and silently ignore a request.
 const preflight = `
@@ -76,7 +93,12 @@ function validateCheck(source: string, image: string, timeoutMs: number): Sandbo
   }
 }
 
-export function checkProfile(name: string, image: string, timeoutMs: number) {
+export function checkProfile(name: string, image: string, timeoutMs: number, moduleCheck?: ModuleCheck) {
+  const runtimeChecks = "--import=data:text/javascript," + encodeURIComponent(preflight);
+  const launch = moduleCheck
+    ? ['umask 077; /usr/local/bin/node --input-type=module -e "$1" "$2" "$3" || exit 78; exec /usr/local/bin/node "$4" --test "$2"',
+      "perry-test", stageFiles, "/tmp/source/" + moduleCheck.testPath, "/tmp/source/" + moduleCheck.modulePath, runtimeChecks]
+    : ['umask 077; cat > /tmp/check.test.mjs; exec /usr/local/bin/node "$1" --test /tmp/check.test.mjs', "perry-test", runtimeChecks];
   return [
     "create", "--name", name, "--rm", "--interactive", "--pull=never",
     "--network=none", "--pid=private", "--ipc=private", "--cgroupns=private",
@@ -87,13 +109,18 @@ export function checkProfile(name: string, image: string, timeoutMs: number) {
     "--http-proxy=false", "--unsetenv-all", "--log-driver=none",
     "--timeout=" + (Math.ceil(timeoutMs / 1000) + 2), "--stop-timeout=0",
     "--entrypoint=/bin/sh", image, "-ec",
-    'umask 077; cat > /tmp/check.test.mjs; exec /usr/local/bin/node "$1" --test /tmp/check.test.mjs',
-    "perry-test", "--import=data:text/javascript," + encodeURIComponent(preflight),
+    ...launch,
   ];
 }
 
-/** Execute one owner-selected, self-contained Node test blob. No checkout is mounted. */
-export async function runSandboxCheck(source: string, image: string, timeoutMs = 10000): Promise<SandboxResult> {
+/** Run the selected committed test, optionally with one committed module. */
+export async function runSandboxCheck(source: string, image: string, timeoutMs = 10000, moduleCheck?: ModuleCheck): Promise<SandboxResult> {
+  if (moduleCheck && (!safeModulePath(moduleCheck.testPath) || !safeModulePath(moduleCheck.modulePath)
+    || !moduleCheck.testPath.endsWith(".test.mjs") || moduleCheck.testPath === moduleCheck.modulePath
+    || moduleCheck.testPath.startsWith(moduleCheck.modulePath + "/") || moduleCheck.modulePath.startsWith(moduleCheck.testPath + "/")
+    || Buffer.byteLength(moduleCheck.moduleSource) > 128 * 1024)) {
+    return unavailable("Select two distinct regular ES module paths of at most 128 KiB each.");
+  }
   const invalid = validateCheck(source, image, timeoutMs);
   if (invalid) return invalid;
   const info = await podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"], 10000);
@@ -101,12 +128,13 @@ export async function runSandboxCheck(source: string, image: string, timeoutMs =
     return unavailable("Rootless local Podman with cgroup v2 is required.");
   }
   const name = "perry-check-" + randomUUID();
-  const create = checkProfile(name, image, timeoutMs);
+  const create = checkProfile(name, image, timeoutMs, moduleCheck);
   let result = unavailable("Podman could not create the check with the pinned image and required limits.");
   try {
     const created = await podman(create, 15000);
     if (created.code === 0) {
-      const run = await podman(["start", "--attach", "--interactive", name], timeoutMs, source);
+      const input = moduleCheck ? JSON.stringify([source, moduleCheck.moduleSource]) : source;
+      const run = await podman(["start", "--attach", "--interactive", name], timeoutMs, input);
       if (run.timedOut) result = { status: "timed_out", detail: "The check exceeded its wall-clock deadline." };
       else if (run.code === 0) result = { status: "passed", detail: "The isolated Node test process exited successfully." };
       else if (run.code === 1) result = { status: "failed", detail: "The isolated Node test process exited with a failure." };

@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 import { Pool } from "pg";
 import type { CommentSlot } from "../src/github.ts";
 import { webhookHandler, type MentionRequest } from "../src/intake.ts";
-import { runLocal } from "../src/local-runner.ts";
+import { approvedCheck, runLocal } from "../src/local-runner.ts";
 import { Store } from "../src/store.ts";
 import { processMention } from "../src/worker.ts";
 
@@ -71,8 +71,9 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   const comments = new Map<string, {id: string; body: string}>();
   let runs = 0;
   let permission = true;
+  let sameRepository = true;
   const github = {
-    async authorize() { return permission; }, async refs() { return {base, head}; },
+    async authorize() { return permission; }, async refs() { return {base, head, sameRepository}; },
     async writeSlot(r: MentionRequest, slot: CommentSlot, body: string, receipt?: string, create = true,
       _signal?: AbortSignal, beforeWrite?: () => Promise<void>) {
       const name = slot === "answer" ? slot + r.commentId : slot;
@@ -88,7 +89,7 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   const scope = {installationId: "2", repoId: "5"};
   const work = () => store.workOne((request, job) => processMention(request, job, github, async (r, refs, signal) => {
     runs++;
-    return runLocal(join(root, "source.git"), r, refs, signal);
+    return runLocal(join(root, "source.git"), r, refs, signal, undefined, approvedCheck("tests/tax.test.mjs", "tax.mjs"));
   }), scope);
   const delivery = randomUUID();
   await send(11, "@Perry review", delivery);
@@ -102,6 +103,7 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   assert.match(comments.get("summary")!.body, /DO NOT MERGE/);
   assert.match(comments.get("summary")!.body, /\d+\/10/);
   assert.match(comments.get("findings")!.body, /lint/);
+  assert.match(comments.get("summary")!.body + comments.get("findings")!.body, /file absent/);
   assert.ok(comments.get("summary")!.body.includes(head));
   const pair = [...comments.entries()];
   await send(12, "@Perry --where is TAX_RATE?");
@@ -110,6 +112,7 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   assert.match(answer, /tax\.mjs:1/);
   assert.ok(answer.includes(head));
   assert.doesNotMatch(answer, /\/10/);
+  assert.doesNotMatch(answer, /tax\.test\.mjs/);
   assert.deepEqual([...comments.entries()].slice(0, 2), pair);
   await send(13, "@Peryy review");
   await work();
@@ -119,4 +122,19 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   await send(14, "@Perry review");
   await work();
   assert.equal(runs, 3);
+  permission = true;
+  sameRepository = false;
+  await send(15, "@Perry review");
+  await work();
+  assert.match(comments.get("findings")!.body, /runtime check was skipped/);
+  assert.doesNotMatch(comments.get("summary")!.body + comments.get("findings")!.body, /file absent/);
+});
+
+test("only operator-selected repository paths describe the runtime check", () => {
+  assert.equal(approvedCheck(), undefined);
+  assert.deepEqual(approvedCheck("test/tax.test.mjs"), {testPath: "test/tax.test.mjs"});
+  for (const path of ["../tax.mjs", "/tax.mjs", ".git/tax.mjs", "-v", "src\\tax.mjs", "src\n/tax.mjs", "tax.test.mjs"]) {
+    assert.throws(() => approvedCheck("tax.test.mjs", path));
+  }
+  assert.throws(() => approvedCheck(undefined, "tax.mjs"));
 });

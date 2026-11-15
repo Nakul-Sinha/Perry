@@ -46,6 +46,8 @@ Supply configuration through the trusted process environment. Keep actual access
 | `PERRY_INSTALLATION_ID` | Numeric installation ID accepted by this process. |
 | `PERRY_REPOSITORY_ID` | Numeric repository ID accepted by this process. |
 | `PERRY_CACHE_DIR` | Operator-owned local cache root. |
+| `PERRY_TEST_PATH` | Optional operator-selected `.test.mjs` path for each PR review on a rootless Linux host. |
+| `PERRY_TEST_MODULE` | Optional `.mjs` dependency imported by that test, relative to the repository root. |
 | `PERRY_PORT` | Optional localhost port, default `3000`. |
 | `PERRY_ANTHROPIC_MODEL` | Optional account-available Anthropic model ID. Without it, the pilot uses static review and source-excerpt answers. |
 | `ANTHROPIC_API_KEY` | Required by the optional Anthropic runner route; supply through an authorized local runtime configuration. |
@@ -80,7 +82,7 @@ An accepted webhook response is not proof of requester authorization, a successf
 
 The worker resolves full base/head IDs from an open PR or the default branch for issue questions. It fetches into a Perry-owned bare cache under the configured installation/repository scope and verifies the pinned objects. It uses repository-scoped read-only source access for acquisition and strips that access before starting the local runner.
 
-The local runner inherits a limited environment, with model API access only when the optional model route is selected. It reads committed source rather than the developer's working tree. The webhook path does not enable `--test`, install dependencies, run repository scripts, or execute the Podman test profile. That profile remains a separate explicit local command.
+The local runner reads committed source. Static review is the default. An operator can set `PERRY_TEST_PATH` and optionally `PERRY_TEST_MODULE` in the service environment to exercise a specific runtime check on PR reviews. For example, `tests/total.test.mjs` can import `../src/total.mjs` when `src/total.mjs` is the chosen module. Use a non-root Linux service account, rootless Podman with cgroup v2, and the preloaded Node image listed in the README. Each revision gets a separate container with private temporary storage, disabled networking, and no host mounts. Test output records the outcome for each pinned revision. An unavailable runtime, missing file, or missing dependency limits what the result establishes. Only a PR with a verified head in the installed repository can run this profile. Fork and unavailable head repositories get source review and an explicit skipped-check note. PR comments cannot choose paths or commands. Questions only read source.
 
 PR reports include a numeric rating and either `HOLD` or `DO NOT MERGE`. The service does not evaluate live CI, approvals, mergeability, or branch rules and never recommends `MERGE`. Before completing review publication it re-reads the PR's base/head and can replace the current result with a stale-review hold if the commits changed during that run.
 
