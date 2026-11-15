@@ -2,6 +2,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { parseMention, type MentionRequest } from "./intake.ts";
+import type { Observation, Refs } from "./worker.ts";
 
 export type CommentSlot = "summary" | "findings" | "answer";
 export class UncertainComment extends Error {}
@@ -90,6 +91,14 @@ export class GitHubGateway {
     }
   }
 
+  private async granted(r: MentionRequest, api: Octokit, signal?: AbortSignal) {
+    const request = signal ? { signal } : {};
+    const { data: grants } = await api.rest.apps.listReposAccessibleToInstallation({ per_page: 2, request });
+    if (grants.total_count !== 1 || grants.repositories.length !== 1 || String(grants.repositories[0]?.id) !== r.repoId) return false;
+    const { data } = await api.rest.repos.get({ owner: r.owner, repo: r.repo, request });
+    return String(data.id) === r.repoId && data.full_name.toLowerCase() === (r.owner + "/" + r.repo).toLowerCase();
+  }
+
   async authorize(r: MentionRequest, signal?: AbortSignal): Promise<boolean> {
     try {
       signal?.throwIfAborted();
@@ -97,10 +106,7 @@ export class GitHubGateway {
       const repo = { owner: r.owner, repo: r.repo, request: signal ? { signal } : {} };
       // A public repository can be readable after installation access changes.
       // The scoped installation listing checks the current grant itself.
-      const { data: grants } = await api.rest.apps.listReposAccessibleToInstallation({ per_page: 2, request: repo.request });
-      if (grants.total_count !== 1 || grants.repositories.length !== 1 || String(grants.repositories[0]?.id) !== r.repoId) return false;
-      const { data: repository } = await api.rest.repos.get(repo);
-      if (String(repository.id) !== r.repoId || repository.full_name.toLowerCase() !== (r.owner + "/" + r.repo).toLowerCase()) return false;
+      if (!await this.granted(r, api, signal)) return false;
       const { data: perm } = await api.rest.repos.getCollaboratorPermissionLevel({ ...repo, username: r.sender });
       if (!["write", "maintain", "admin"].includes(perm.permission) || String(perm.user?.id) !== r.senderId) return false;
       const { data: comment } = await api.rest.issues.getComment({ ...repo, comment_id: numericId(r.commentId) });
@@ -112,6 +118,28 @@ export class GitHubGateway {
       if (status(error) === 404 || status(error) === 410) return false;
       throw new Error("GitHub requester authorization is unavailable.");
     }
+  }
+
+  async observeReview(r: MentionRequest, signal: AbortSignal): Promise<Observation> {
+    if (!r.isPR || r.kind !== "review") throw new Error("Expected a pull request review.");
+    const api = await this.client(r, signal);
+    if (!await this.granted(r, api, signal)) throw new Error("Review installation is unavailable.");
+    const { data } = await api.rest.pulls.get({ owner: r.owner, repo: r.repo, pull_number: r.number, request: { signal } });
+    if (data.number !== r.number || String(data.base.repo.id) !== r.repoId || !["open", "closed"].includes(data.state)
+      || ![data.base.sha, data.head.sha].every(sha => /^[a-f0-9]{40}$/.test(sha))) throw new Error("Unverified pull request state.");
+    return { base: data.base.sha, head: data.head.sha, closed: data.state === "closed" };
+  }
+
+  async invalidateSlot(r: MentionRequest, slot: "summary" | "findings", id: string, refs: Refs, observed: Observation, signal: AbortSignal) {
+    if (!r.isPR || r.kind !== "review" || !/^[1-9]\d*$/.test(id)) throw new Error("Expected an existing review slot.");
+    const api = await this.client(r, signal);
+    if (!await this.granted(r, api, signal)) throw new Error("Review installation is unavailable.");
+    const heading = slot === "summary" ? "## Perry review\n\n**HOLD | 0/10 merge readiness (provisional)**" : "## Bugs and suggested fixes";
+    const reason = observed.closed ? "The pull request was closed." : "The pull request changed after this review.";
+    const body = heading + "\n\n" + reason + " The previous assessment is stale."
+      + "\n\nReviewed base `" + refs.base + "`, head `" + refs.head + "`."
+      + "\n\nObserved base `" + observed.base + "`, head `" + observed.head + "`.";
+    await this.publish(r, slot, body, id, false, signal);
   }
 
   async refs(r: MentionRequest, signal?: AbortSignal): Promise<{ base: string; head: string } | null> {
@@ -140,6 +168,12 @@ export class GitHubGateway {
 
   async writeSlot(r: MentionRequest, slot: CommentSlot, body: string, knownId?: string, canCreate = true,
     signal?: AbortSignal, reserve?: () => Promise<void>): Promise<string> {
+    if (!(await this.authorize(r, signal))) throw new Error("GitHub comment access was revoked.");
+    return this.publish(r, slot, body, knownId, canCreate, signal, reserve);
+  }
+
+  private async publish(r: MentionRequest, slot: CommentSlot, body: string, knownId: string | undefined, canCreate: boolean,
+    signal?: AbortSignal, reserve?: () => Promise<void>): Promise<string> {
     if ((r.kind === "review") !== (slot !== "answer") || (r.kind === "review" && !r.isPR)) {
       throw new Error("Invalid GitHub comment destination.");
     }
@@ -147,7 +181,6 @@ export class GitHubGateway {
     const marker = `<!-- perry:${r.installationId}:${r.repoId}:${r.number}:${slotName} -->`;
     const rendered = body.trimEnd() + "\n\n" + marker;
     if (!body.trim() || rendered.length > 60_000) throw new Error("Comment exceeds the supported publication budget or is empty.");
-    if (!(await this.authorize(r, signal))) throw new Error("GitHub comment access was revoked.");
     const owned = (comment: Comment) => comment.user?.id === this.botId && comment.user.type === "Bot"
       && comment.issue_url.toLowerCase() === threadURL(r) && comment.body?.split("\n").at(-1) === marker;
     try {

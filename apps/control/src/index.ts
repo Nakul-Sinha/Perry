@@ -8,7 +8,7 @@ import { GitHubGateway } from "./github.ts";
 import { webhookHandler } from "./intake.ts";
 import { runLocal } from "./local-runner.ts";
 import { Store } from "./store.ts";
-import { processMention } from "./worker.ts";
+import { checkReview, processMention } from "./worker.ts";
 
 function required(name: string) {
   const value = process.env[name];
@@ -70,16 +70,22 @@ async function main() {
   const stop = () => { stopping = true; server.close(); };
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
+  const scope = {installationId: installation, repoId: repository};
+  let nextPoll = 0;
   try {
     while (!stopping) {
       try {
         const active = await store.workOne(async (request, job) => {
-          await processMention(request, job, github, async (r, refs, signal) => {
+          return processMention(request, job, github, async (r, refs, signal) => {
             const token = await github.sourceToken(r, signal);
             const repo = await prepareCache(cache, r, refs, token, signal);
             return runLocal(repo, r, refs, signal, model);
           });
-        }, {installationId: installation, repoId: repository});
+        }, scope);
+        if (Date.now() >= nextPoll) {
+          nextPoll = Date.now() + 5000;
+          await store.pollOne(scope, watch => checkReview(watch, github));
+        }
         if (!active) await sleep(500);
       } catch {
         console.error("The queue worker lost its connection. Retrying.");
