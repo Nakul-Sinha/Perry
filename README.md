@@ -60,6 +60,18 @@ Use a trusted local repository root with complete history. The preview reads up 
 
 The [agent workflow](docs/agent-workflow.md) tracks implementation order, test evidence, and the next handoff.
 
+### GitHub control pilot
+
+The single-repository control pilot accepts direct `@Perry review` comments in an open PR and direct questions in a PR or issue. It verifies signed deliveries and requester access, keeps work in PostgreSQL, fetches pinned source into an owned cache, and publishes two review comments or a separate answer. Without a model, questions return matching committed source excerpts.
+
+Configure the pilot as described in [GitHub control](docs/github-control.md), then start it from this checkout:
+
+```sh
+pnpm dev:control
+```
+
+Only newly created general conversation comments are supported. Inline review threads, automatic readiness updates, and automatic re-reviews are not implemented. Request a new review after a push. The pilot never recommends `MERGE` and does not run the optional Podman test profile from webhook requests. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
+
 ### Run an isolated Node test
 
 On Linux with rootless Podman and cgroup v2, prepare the pinned Node image once. Select a self-contained committed ES module test from a repository you control. Perry runs its merge-base and head versions separately and prints both outcomes.

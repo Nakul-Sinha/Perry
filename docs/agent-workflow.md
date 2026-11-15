@@ -53,6 +53,21 @@ Next assignments can start in parallel:
 2. **Model owner, M2.** Implement one owner-selected API backend and bounded read tools for approved plans, changed source and unchanged callers. Separate the candidate and verifier requests. Prove a cross-file finding and a refuted candidate through the local command, then verify the live route on an authorized fixture.
 3. **Fixture owner, M0.** The 20 starter comparisons and four CLI scenarios are available via `pnpm review:fixture --list`. Run one with `pnpm review:fixture empty-cart` or run all with `pnpm test`. Expected outcomes live outside each temporary repository. The unchanged consumer and empty-cart plan mismatch are known misses for the initial static checks; keep both for the model evaluation.
 
-The integrator can start M3 once the M1 boundary and a live M2 review pass their exit checks. Harness tests and static fixture results are evidence for the local preview only.
+The GitHub integration can be developed against the local source and report contracts while live model acceptance remains open. That does not close either live acceptance gate. Harness tests and static fixture results are evidence for the local preview only.
 
 The Linux CI compatibility job now verifies the rootless single-test profile on the pinned image. The first Anthropic route has SDK transport, context selection, investigation and independent verification tests. For live acceptance run `pnpm check:model MODEL_ID` with authorized API access. It exercises `empty-cart`, `unchanged-consumer` and `cart-refactor`, checks each report, and exits on the first failure. Inspect both comments for the real trigger, prior behavior, head citation and suggested fix. Record the model ID, outcomes, missed or refuted claims and actual billing route before closing the model milestone.
+
+### Handoff from the GitHub control pilot
+
+Read [GitHub control](github-control.md) before starting the service. The current pilot is configured for one installation and repository. It accepts signed, newly created, directly addressed general PR or issue comments, checks effective requester access, persists requests in PostgreSQL, and invokes the local runner against pinned Git history. PR reviews update two owned comment slots. Questions use a separate answer slot for each triggering comment and leave the review pair intact.
+
+`pnpm dev:control` runs the source service. After `pnpm build`, `pnpm --filter @perry/control start` runs the built entry point. Configuration and the explicit `--retry` operator command are documented in the pilot guide. Failed publication can quarantine a thread so a newer request cannot overtake an uncertain old write. Reconcile the recorded App-owned comments before retrying.
+
+The automated flow test uses real temporary Git history and, when `PERRY_TEST_DATABASE_URL` is supplied, real PostgreSQL. GitHub responses and comment publication are simulated in tests. A test run without that database setting skips the database integration cases. Neither mocked transport nor database tests verify a live GitHub installation.
+
+Keep the acceptance work separate:
+
+- [#5: live Anthropic reviews](https://github.com/Nakul-Sinha/Perry/issues/5) requires an authorized selected model and recorded live fixture results.
+- [#6: private GitHub installation](https://github.com/Nakul-Sinha/Perry/issues/6) requires a maintainer-owned development App, selected private repository, signed delivery, actual owned comments, a question reply, and redelivery/recovery evidence.
+
+The pilot does not implement inline review threads, runner pairing, live CI/approval/branch-rule readiness, push-triggered invalidation, or automatic re-reviews. It runs source checks with an optional Anthropic investigation, not the local `--test` execution profile. Its reports remain `HOLD` or `DO NOT MERGE`; a new direct review comment is needed after source changes. Do not describe the broader M3/M4/M8 exit checks as complete until their specified live and lifecycle evidence exists.
