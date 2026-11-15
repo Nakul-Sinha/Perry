@@ -25,10 +25,17 @@ for (const item of cases) {
     process.exit(1);
   }
   const bugs = body.split("\n\n---\n\n")[1] ?? "";
-  const count = (bugs.match(/^\d+\. \*\*(?:LOW|MEDIUM|HIGH|CRITICAL)\*\*/gm) ?? []).length;
+  const findings = bugs.split(/(?=^\d+\. \*\*(?:LOW|MEDIUM|HIGH|CRITICAL)\*\*)/m).slice(1);
+  // The static caller citation may also appear. The live model must still
+  // identify the changed provider and its prior behavior independently.
+  const modelFindings = findings.filter(finding => !(item.name === "unchanged-consumer"
+    && /^\d+\. \*\*MEDIUM\*\* `Missing named export: total`$/m.test(finding)
+    && finding.includes("Static evidence: `invoice.mjs:1` at")));
   const matches = item.path && item.symptom
-    ? count === 1 && item.symptom.test(bugs) && bugs.includes(item.path + ":1") && body.includes("DO NOT MERGE")
-    : count === 0 && bugs.includes("No verified bugs found") && body.includes("HOLD");
+    ? modelFindings.length === 1 && findings.length <= modelFindings.length + 1
+      && item.symptom.test(modelFindings[0]!) && modelFindings[0]!.includes("Static evidence: `" + item.path + ":1` at")
+      && body.includes("DO NOT MERGE")
+    : findings.length === 0 && bugs.includes("No verified bugs found") && body.includes("HOLD");
   console.log("\n" + item.name + "\n" + body);
   if (!matches) {
     console.error("The live report did not match the expected finding and recommendation.");

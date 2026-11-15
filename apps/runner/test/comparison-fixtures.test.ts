@@ -23,7 +23,7 @@ const cases = [
   { name: "module-existing" },
   { name: "import-binding", finding: /Missing named export: balance/, location: "invoice.mjs:1" },
   { name: "import-alias" },
-  { name: "unchanged-consumer", knownMiss: /(?:missing|removed|no).*export.*total|total.*(?:missing|removed).*export/i },
+  { name: "unchanged-consumer", finding: /Missing named export: total/, location: "invoice.mjs:1" },
   { name: "compatible-export" },
   { name: "forwarded-binding", limitation: /outside the supported source syntax/ },
   { name: "empty-cart", knownMiss: /empty.*(?:cart|array|reduce)|reduce.*(?:initial|empty)/i },

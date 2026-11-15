@@ -17,6 +17,10 @@ function review(before: Files, after: Files, changed = [path]) {
     changes: changed.map(path => ({
       path, status: Object.hasOwn(before, path) ? (Object.hasOwn(after, path) ? "modified" : "deleted") : "added",
     })),
+    listPaths: async ref => {
+      assert.equal(ref, "head");
+      return Object.keys(after);
+    },
     read: async (rev, path) => {
       assert.notEqual(rev, "base");
       reads.push(rev + ":" + path);
@@ -26,7 +30,7 @@ function review(before: Files, after: Files, changed = [path]) {
       return value ?? { kind: "missing" };
     },
   };
-  return { run: () => inspectImports(snapshot), reads };
+  return { run: () => inspectImports(snapshot), reads, snapshot };
 }
 
 test("an added named import is verified against an unchanged provider", async () => {
@@ -110,4 +114,62 @@ test("a prior direct re-export may already have failed module linking", async ()
   const original = "export { price } from './library.mjs';";
   const result = await review({ [path]: original, [target]: missing }, { [path]: use, [target]: missing }).run();
   assert.deepEqual(result.findings, []);
+});
+
+test("a renamed export breaks an unchanged caller at the pinned head import", async () => {
+  const consumer = "\n" + use;
+  const { run, reads } = review({ [path]: consumer, [target]: valid }, { [path]: consumer, [target]: missing }, [target]);
+  const result = await run();
+  assert.equal(result.findings.length, 1);
+  assert.deepEqual(result.findings[0]?.evidence, { sha: "3".repeat(40), path, line: 2 });
+  assert.match(result.findings[0]!.impact, /src\/library\.mjs has no named export price/);
+  assert.ok(result.findings[0]!.impact.includes("merge base " + "2".repeat(40)));
+  assert.deepEqual(reads, ["head:" + target, "merge_base:" + target, "head:" + path]);
+});
+
+test("compatible exports, pre-existing broken imports, and different providers stay quiet", async () => {
+  const compatible = "const n = 2; export { n as price };";
+  for (const [baseline, head, importLine] of [
+    [valid, compatible, use],
+    ["export const obsolete = 1;", missing, use],
+    [valid, missing, use.replace("library", "another")],
+    [valid, "export * from './fallback.mjs';", use],
+    ["export * from './fallback.mjs';", missing, use],
+  ] as const) {
+    const old = { [path]: importLine, [target]: baseline };
+    const { run, reads } = review(old, { ...old, [target]: head }, [target]);
+    assert.equal((await run()).findings.length, 0);
+    if (head === compatible) assert.ok(!reads.includes("head:" + path), "A compatible edit needs no reverse scan.");
+  }
+});
+
+test("changed and unchanged callers of one removed export share one root cause", async () => {
+  const also = "src/also.mjs";
+  const before = { [path]: use, [also]: use, [target]: valid };
+  const result = await review(before, { ...before, [path]: "// changed\n" + use, [target]: missing }, [target, path]).run();
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0]?.evidence.path, path);
+});
+
+test("an unavailable inventory records a gap without discarding changed caller findings", async () => {
+  const before = { [path]: use, [target]: valid };
+  const { snapshot, run } = review(before, { ...before, [path]: "\n" + use, [target]: missing }, [path, target]);
+  for (const mode of ["unavailable", "throws"]) {
+    if (mode === "unavailable") delete snapshot.listPaths;
+    else snapshot.listPaths = async () => { throw new Error("Incomplete inventory"); };
+    const result = await run();
+    assert.equal(result.findings.length, 1);
+    assert.ok(result.limitations.some(line => line.includes("head inventory")));
+  }
+});
+
+test("reverse discovery respects source exclusions and bounds unchanged file reads", async () => {
+  const code = Object.fromEntries(Array.from({ length: 40 }, (_, i) => ["src/c" + i + ".mjs", "export {};"]));
+  const before = { [target]: valid, "dist/bundle.mjs": use, ...code, [path]: use };
+  const { run, reads } = review(before, { ...before, [target]: missing }, [target]);
+  const result = await run();
+  assert.equal(result.findings.length, 0);
+  assert.ok(result.limitations.some(line => line.includes("32 eligible modules")));
+  assert.equal(reads.length, 2 + 32);
+  assert.ok(!reads.some(path => path.includes("dist/")));
 });
