@@ -58,6 +58,8 @@ pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_H
 
 Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. When an export disappears, Perry also searches up to 32 unchanged modules for callers and cites the import that breaks. It ignores working-tree edits and lists gaps in coverage. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
 
+Run `pnpm check:baseline` to measure the static reviewer on all 20 synthetic comparisons. The [baseline guide](docs/static-baseline.md) explains the labels and how to inspect individual misses.
+
 The [agent workflow](docs/agent-workflow.md) tracks implementation order, test evidence, and the next handoff.
 
 ### GitHub control pilot

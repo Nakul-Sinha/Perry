@@ -3,34 +3,9 @@ import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { comparisons } from "../../../tools/fixtures/comparisons.ts";
+import { comparisonExpectations as cases } from "../../../tools/fixtures/expectations.ts";
 
 const fixture = fileURLToPath(new URL("../../../tools/fixtures/review.ts", import.meta.url));
-
-// These labels are held outside the Git inputs. A known miss records a real
-// defect that the static preview may abstain on. A later correct finding is
-// acceptable; a claim about a different cause is not.
-const cases = [
-  { name: "script-rename" },
-  { name: "script-removed", finding: /Missing npm script lint/, location: "package.json:4" },
-  { name: "script-optional", limitation: /npm configuration/ },
-  { name: "script-existing" },
-  { name: "script-shared-target", finding: /Missing npm script lint/, location: "package.json:4" },
-  { name: "manifest-punctuation", finding: /Invalid package manifest JSON/, location: "package.json:3" },
-  { name: "manifest-metadata" },
-  { name: "manifest-move" },
-  { name: "module-declaration", finding: /Module fails to parse/, location: "total.mjs:1" },
-  { name: "module-expression" },
-  { name: "module-existing" },
-  { name: "import-binding", finding: /Missing named export: balance/, location: "invoice.mjs:1" },
-  { name: "import-alias" },
-  { name: "unchanged-consumer", finding: /Missing named export: total/, location: "invoice.mjs:1" },
-  { name: "compatible-export" },
-  { name: "forwarded-binding", limitation: /outside the supported source syntax/ },
-  { name: "empty-cart", knownMiss: /empty.*(?:cart|array|reduce)|reduce.*(?:initial|empty)/i },
-  { name: "cart-refactor" },
-  { name: "module-binary", limitation: /source is unavailable/i },
-  { name: "package-deleted", limitation: /Impact of removing this package/ },
-];
 
 test("every starter comparison has one expectation outside the reviewed repository", () => {
   assert.ok(cases.length >= 20);
