@@ -11,6 +11,16 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: perry_test
+          POSTGRES_USER: perry_ci
+          POSTGRES_PASSWORD: disposable-ci-fixture
+        ports:
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 2s --health-retries 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,6 +35,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
+        env:
+          PERRY_TEST_DATABASE_URL: postgresql://perry_ci:disposable-ci-fixture@127.0.0.1:${{ job.services.postgres.ports[5432] }}/perry_test
       - run: pnpm build
 
   sandbox:

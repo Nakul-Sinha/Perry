@@ -6,6 +6,11 @@ const plan = /^(?:docs\/(?:plans?\/|adr\/)[^/]+|docs\/(?:plan|project idea)|(?:p
 const excluded = /(?:^|\/)(?:\.|node_modules\/|dist\/|build\/|coverage\/|vendor\/|generated\/)|(?:^|[\/._-])(?:credentials?|secrets?|private[-_]?key)(?:[\/._-]|$)/i;
 const sensitive = /-----BEGIN [^-\n]*PRIVATE KEY-----|\b(?:sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{25,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[A-Z0-9]{16})\b/;
 
+export function questionPath(path: string): boolean {
+  return !excluded.test(path) && (code.test(path) || plan.test(path) || /(?:^|\/)README\.md$/i.test(path));
+}
+export function containsSensitiveText(text: string): boolean { return sensitive.test(text); }
+
 export async function collectContext(snapshot: Snapshot) {
   const files: ContextFile[] = [];
   const paths = new Set<string>();
