@@ -119,6 +119,9 @@ export function renderReport(input: ReportInput) {
       `   - Trigger: ${prose(finding.trigger)}`,
       `   - Impact: ${prose(finding.impact)}`,
       `   - Static evidence: ${literal(`${path}:${line}`)} at ${literal(sha)}`,
+      ...(finding.verifiedProvider ? [
+        `   - Independently verified provider: ${literal(`${finding.verifiedProvider.path}:${finding.verifiedProvider.line}`)} at ${literal(finding.verifiedProvider.sha)}`,
+      ] : []),
       `   - Suggested fix (untested): ${prose(finding.fix)}`,
     ].join("\n"));
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { anthropicBackend, investigate, type ContextFile } from "../src/model-review.ts";
+import type { Finding } from "../src/contracts.ts";
 
 const oldSha = "1".repeat(40);
 const newSha = "2".repeat(40);
@@ -148,4 +149,40 @@ test("budgets bound supplied source, model output and number of calls", async ()
   assert.equal(calls, 2);
   assert.equal(review.findings.length, 1);
   assert.ok(review.limitations.some(text => text.includes("unresolved")));
+});
+
+test("corroboration requires the exact static import and independent model witnesses", async () => {
+  const files: ContextFile[] = [
+    { path: "prices.mjs", changed: true, ref: "merge_base", sha: oldSha, text: "export const price = 10, tax = .05;" },
+    { path: "prices.mjs", changed: true, ref: "head", sha: newSha, text: "export const cost = 10, tax = .5;" },
+    { path: "invoice.mjs", changed: false, ref: "head", sha: newSha, text: "import { price } from './prices.mjs';" },
+  ];
+  const before = { file: 0, line: 1, quote: files[0]!.text };
+  const after = { file: 1, line: 1, quote: files[1]!.text };
+  const importer = { file: 2, line: 1, quote: files[2]!.text };
+  const binding = { name: "price", importer };
+  const issue: Finding = {
+    id: "esm-export:prices.mjs:price", title: "Missing named export: price", severity: "medium",
+    trigger: "Load invoice.mjs.", impact: "The import cannot link.", fix: "Restore price.",
+    evidence: { path: "invoice.mjs", line: 1, sha: newSha },
+  };
+  const linking = { ...item, title: issue.title, trigger: issue.trigger, impact: issue.impact, fix: issue.fix,
+    cause: after, prior: before, missingExport: binding };
+  const tax = { ...item, cause: after, prior: before };
+  const decision = { ...accepted, cause: after, prior: before, missingExport: binding };
+  const result = await investigate(files, async role => role === "investigator" ? draft([linking, tax])
+    : verified(decision, { ...accepted, cause: after, prior: before, index: 1 }), undefined, [issue]);
+  assert.deepEqual(result.findings.map(finding => finding.id), [issue.id, "model:prices.mjs:1"]);
+  assert.equal(result.findings[1]?.title, tax.title);
+
+  for (const [staticIssue, secondWitness] of [
+    [issue, undefined], [issue, { name: "tax", importer }],
+    [issue, { name: "price", importer: { ...importer, quote: "invented" } }],
+    [{ ...issue, evidence: { ...issue.evidence, sha: oldSha } }, binding],
+    [{ ...issue, evidence: { ...issue.evidence, line: 2 } }, binding],
+  ] as const) {
+    const unconfirmed = await investigate(files, async role => role === "investigator" ? draft([linking])
+      : verified({ ...decision, missingExport: secondWitness }), undefined, [staticIssue]);
+    assert.equal(unconfirmed.findings[0]?.id, "model:prices.mjs:1");
+  }
 });

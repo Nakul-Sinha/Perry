@@ -15,6 +15,8 @@ export interface Snapshot {
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
+type SourceLocation = { sha: string; path: string; line: number };
+
 export interface Finding {
   id: string;
   title: string;
@@ -22,7 +24,8 @@ export interface Finding {
   trigger: string;
   impact: string;
   fix: string;
-  evidence: { sha: string; path: string; line: number };
+  evidence: SourceLocation;
+  verifiedProvider?: SourceLocation;
 }
 
 export interface Inspection {

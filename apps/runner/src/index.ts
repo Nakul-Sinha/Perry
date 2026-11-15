@@ -75,10 +75,15 @@ async function run(args: string[]) {
     const model = options["anthropic-model"];
     if (model) {
       const context = await collectContext(snapshot);
-      const reviewed = await investigate(context.files, anthropicBackend(model), checksRun);
+      const reviewed = await investigate(context.files, anthropicBackend(model), checksRun, imports.findings);
       limitations[0] = "Local preview with bounded source and no live GitHub prerequisites.";
       limitations.push("Requested Anthropic model: " + model + ".", ...context.limitations, ...reviewed.limitations);
       for (const finding of reviewed.findings) {
+        const confirmed = imports.findings.find(issue => issue.id === finding.id);
+        if (confirmed) {
+          confirmed.verifiedProvider = finding.evidence;
+          continue;
+        }
         if (!findings.some(other => other.evidence.path === finding.evidence.path
           && other.evidence.line === finding.evidence.line && other.title === finding.title)) {
           findings.push(finding);
