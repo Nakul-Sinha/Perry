@@ -56,7 +56,7 @@ To review a real change, run this from Perry's checkout. Replace the path and bo
 pnpm review:local --repo "/path/to/your/repo" --base FULL_BASE_SHA --head FULL_HEAD_SHA
 ```
 
-Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. It ignores working-tree edits and lists gaps in coverage. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
+Use a trusted local repository root with complete history. The preview reads up to 256 changed paths. Its checks cover package manifest JSON, direct npm script calls, Node 24 syntax for `.mjs`, and selected named imports between local `.mjs` files. When an export disappears, Perry also searches up to 32 unchanged modules for callers and cites the import that breaks. It ignores working-tree edits and lists gaps in coverage. Without live GitHub prerequisites, a local review can flag a blocker or recommend holding a PR.
 
 The [agent workflow](docs/agent-workflow.md) tracks implementation order, test evidence, and the next handoff.
 

@@ -51,7 +51,7 @@ Next assignments can start in parallel:
 
 1. **Execution owner, M1.** Implement one credential-free, disposable Node check with a known success and failure, a timeout and a cleanup assertion. Record the exact platform and isolation settings before enabling it for incoming PRs.
 2. **Model owner, M2.** Implement one owner-selected API backend and bounded read tools for approved plans, changed source and unchanged callers. Separate the candidate and verifier requests. Prove a cross-file finding and a refuted candidate through the local command, then verify the live route on an authorized fixture.
-3. **Fixture owner, M0.** The 20 starter comparisons and four CLI scenarios are available via `pnpm review:fixture --list`. Run one with `pnpm review:fixture empty-cart` or run all with `pnpm test`. Expected outcomes live outside each temporary repository. The unchanged consumer and empty-cart plan mismatch are known misses for the initial static checks; keep both for the model evaluation.
+3. **Fixture owner, M0.** The 20 starter comparisons and four CLI scenarios are available via `pnpm review:fixture --list`. Run one with `pnpm review:fixture empty-cart` or run all with `pnpm test`. Expected outcomes live outside each temporary repository. The named-import check catches the unchanged consumer that still uses a removed export. The empty-cart plan mismatch remains a static miss. Both stay in the model evaluation.
 
 The GitHub integration can be developed against the local source and report contracts while live model acceptance remains open. That does not close either live acceptance gate. Harness tests and static fixture results are evidence for the local preview only.
 
