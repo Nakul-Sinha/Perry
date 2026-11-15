@@ -16,15 +16,19 @@ globalThis.fetch = async (url, init) => {
   }
   const cause = cite("head");
   const prior = cite("merge_base");
+  const importer = files.findIndex(file => file.path === "invoice.mjs" && file.ref === "head");
+  const linking = consumer ? { missingExport: {
+    name: "total", importer: { file: importer, line: 1, quote: files[importer].text.split("\n")[0].trim() },
+  } } : {};
   const claim = consumer ? {
     title: "Removed export breaks invoice", severity: "medium", trigger: "Load invoice.mjs.",
-    impact: "The unchanged caller imports total.", fix: "Keep an export named total.", cause, prior,
+    impact: "The unchanged caller imports total.", fix: "Keep an export named total.", cause, prior, ...linking,
   } : {
     title: "Empty cart throws", severity: "medium", trigger: "Request an empty cart total.",
     impact: "An empty array has no first accumulator.", fix: "Pass zero as the initial value.", cause, prior,
   };
   const reply = claims
-    ? { decisions: [{index: 0, verdict: cause.quote.includes(", 0)") ? "reject" : "accept", reason: consumer ? "The unchanged caller still imports total." : "Compared the initial accumulator in both revisions.", cause, prior}] }
+    ? { decisions: [{index: 0, verdict: cause.quote.includes(", 0)") ? "reject" : "accept", reason: consumer ? "The unchanged caller still imports total." : "Compared the initial accumulator in both revisions.", cause, prior, ...linking}] }
     : { candidates: [claim], incomplete: false };
   return Response.json({ stop_reason: "end_turn", content: [{type: "text", text: JSON.stringify(reply)}] });
 };

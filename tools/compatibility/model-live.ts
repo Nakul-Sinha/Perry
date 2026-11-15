@@ -26,8 +26,12 @@ for (const item of cases) {
   }
   const bugs = body.split("\n\n---\n\n")[1] ?? "";
   const count = (bugs.match(/^\d+\. \*\*(?:LOW|MEDIUM|HIGH|CRITICAL)\*\*/gm) ?? []).length;
+  const head = /Head `([a-f0-9]{40,64})`/.exec(bugs)?.[1];
+  const confirmed = item.name !== "unchanged-consumer" || (head
+    && bugs.includes("Static evidence: `invoice.mjs:1` at `" + head + "`")
+    && bugs.includes("Independently verified provider: `total.mjs:1` at `" + head + "`"));
   const matches = item.path && item.symptom
-    ? count === 1 && item.symptom.test(bugs) && bugs.includes(item.path + ":1") && body.includes("DO NOT MERGE")
+    ? count === 1 && confirmed && item.symptom.test(bugs) && bugs.includes(item.path + ":1") && body.includes("DO NOT MERGE")
     : count === 0 && bugs.includes("No verified bugs found") && body.includes("HOLD");
   console.log("\n" + item.name + "\n" + body);
   if (!matches) {

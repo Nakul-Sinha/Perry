@@ -19,8 +19,12 @@ for (const scenario of ["empty-cart", "cart-refactor", "unchanged-consumer"]) {
       assert.match(output, /cart\.mjs:1/);
     } else if (scenario === "unchanged-consumer") {
       assert.match(output, /DO NOT MERGE/);
-      assert.match(output, /Removed export breaks invoice/);
-      assert.match(output, /total\.mjs:1/);
+      assert.match(output, /1 material finding,/);
+      assert.equal((output.match(/^\d+\. \*\*\w+\*\*/gm) ?? []).length, 1);
+      assert.match(output, /Missing named export: total/);
+      const head = /Head `([a-f0-9]{40,64})`/.exec(output)![1];
+      assert.ok(output.includes("Static evidence: `invoice.mjs:1` at `" + head + "`"));
+      assert.ok(output.includes("Independently verified provider: `total.mjs:1` at `" + head + "`"));
     } else {
       assert.match(output, /HOLD/);
       assert.match(output, /No verified bugs/);

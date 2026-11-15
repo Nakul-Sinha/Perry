@@ -75,8 +75,12 @@ function parseModule(path: string, source: string): Module {
   return { imports, exports: simple ? names : null, hasUnsupportedImports };
 }
 
-// Opportunistic linking check for changed consumers. A missing or unsupported
-// source cannot prove that an imported binding is absent.
+function supportedModule(path: string): boolean {
+  return path.endsWith(".mjs") && !excluded.test(path)
+    && path.split("/").every(part => part !== "." && part !== ".." && segment.test(part));
+}
+
+// A missing or unsupported source cannot prove that an imported binding is absent.
 export async function inspectImports(snapshot: Snapshot): Promise<{ findings: Finding[]; limitations: string[] }> {
   const findings = new Map<string, Finding>();
   const limits = new Set<string>();
@@ -113,14 +117,35 @@ export async function inspectImports(snapshot: Snapshot): Promise<{ findings: Fi
     return value;
   }
 
+  function record(path: string, { target, name, line }: Binding, previouslyExported: boolean) {
+    const id = "esm-export:" + target + ":" + name;
+    if (!findings.has(id)) findings.set(id, {
+      id, title: "Missing named export: " + name, severity: "medium",
+      trigger: "Load " + path + " directly with Node ESM.",
+      impact: target + " has no named export " + name + ", so the consumer fails during module linking."
+        + (previouslyExported ? " This name was exported at merge base " + snapshot.merge_base + "." : ""),
+      fix: "Use the name that " + target + " exports or add the intended named export there.",
+      evidence: { sha: snapshot.head, path, line },
+    });
+  }
+
   const hasDeletedPaths = snapshot.changes.some(change => change.status === "deleted");
-  const relevant = snapshot.changes.filter(change => change.path.endsWith(".mjs") && ["added", "modified"].includes(change.status)
-    && !excluded.test(change.path) && change.path.split("/").every(part => part !== "." && part !== ".." && segment.test(part)));
-  if (relevant.length) limits.add("Import checking follows simple named relative .mjs bindings from changed consumers. Other module resolution and execution remain unassessed.");
+  const relevant = snapshot.changes.filter(change => supportedModule(change.path) && ["added", "modified"].includes(change.status));
+  if (relevant.length) limits.add("Import checking follows simple named relative .mjs bindings in eligible source files. Other module resolution and execution remain unassessed.");
   if (relevant.length > 24) limits.add(budget);
+  const removed = new Map<string, Set<string>>();
   for (const { path, status } of relevant.slice(0, 24)) {
     const current = await load("head", path);
-    if (typeof current === "string" || !current.imports.some(binding => binding.check)) continue;
+    if (typeof current === "string") continue;
+    if (status === "modified") {
+      const prior = await load("merge_base", path);
+      const headExports = current.exports;
+      if (typeof prior === "object" && prior.exports && headExports) {
+        const lost = new Set([...prior.exports].filter(name => !headExports.has(name)));
+        if (lost.size) removed.set(path, lost);
+      } else limits.add(unavailable);
+    }
+    if (!current.imports.some(binding => binding.check)) continue;
     if (status === "added" && hasDeletedPaths) {
       limits.add("An added consumer may have been renamed from a deleted path. Its previous imports need review.");
       continue;
@@ -130,7 +155,8 @@ export async function inspectImports(snapshot: Snapshot): Promise<{ findings: Fi
       limits.add(unavailable);
       continue;
     }
-    for (const { target, name, line, check } of current.imports) {
+    for (const binding of current.imports) {
+      const { target, name, check } = binding;
       if (!check) continue;
       if (importsLeft-- <= 0) { limits.add(budget); break; }
       const provider = await load("head", target);
@@ -146,14 +172,28 @@ export async function inspectImports(snapshot: Snapshot): Promise<{ findings: Fi
         if (typeof priorProvider === "string" || !priorProvider.exports) { limits.add(unavailable); continue; }
         if (!priorProvider.exports.has(name)) continue;
       }
-      const id = "esm-export:" + target + ":" + name;
-      if (!findings.has(id)) findings.set(id, {
-        id, title: "Missing named export: " + name, severity: "medium",
-        trigger: "Load " + path + " directly with Node ESM.",
-        impact: target + " has no named export " + name + ", so the consumer fails during module linking.",
-        fix: "Use the name that " + target + " exports or add the intended named export there.",
-        evidence: { sha: snapshot.head, path, line },
-      });
+      record(path, binding, existed);
+    }
+  }
+  if (removed.size) {
+    const inventory = await snapshot.listPaths?.("head").catch(() => undefined);
+    if (!inventory) {
+      limits.add("The head inventory was unavailable for the unchanged importer check.");
+    } else {
+      // The complete merge-base diff establishes that these consumers are unchanged.
+      const changed = new Set(snapshot.changes.map(change => change.path));
+      const candidates = inventory.filter(path => !changed.has(path) && supportedModule(path));
+      if (candidates.length > 32) limits.add("Unchanged importer coverage is partial. At most 32 eligible modules can be scanned.");
+      for (const path of candidates.slice(0, 32)) {
+        if (importsLeft <= 0 || cache.size >= 64 || bytesLeft <= 0) { limits.add(budget); break; }
+        const consumer = await load("head", path);
+        if (typeof consumer === "string") { limits.add(unavailable); continue; }
+        for (const binding of consumer.imports) {
+          if (!binding.check) continue;
+          if (importsLeft-- <= 0) { limits.add(budget); break; }
+          if (removed.get(binding.target)?.has(binding.name)) record(path, binding, true);
+        }
+      }
     }
   }
   return { findings: [...findings.values()], limitations: [...limits] };
