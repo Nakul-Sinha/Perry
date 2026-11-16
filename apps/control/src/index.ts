@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { prepareCache } from "./cache.ts";
 import { GitHubGateway } from "./github.ts";
 import { webhookHandler } from "./intake.ts";
-import { approvedCheck, runLocal } from "./local-runner.ts";
+import { approvedCheck, approvedModel, runLocal } from "./local-runner.ts";
 import { Store } from "./store.ts";
 import { checkReview, processMention } from "./worker.ts";
 
@@ -34,9 +34,9 @@ async function main() {
     } finally { await pool.end(); }
     return;
   }
+  const model = approvedModel(process.env);
   const cache = resolve(required("PERRY_CACHE_DIR"));
   const signingSecret = required("PERRY_WEBHOOK_SECRET");
-  const model = process.env.PERRY_ANTHROPIC_MODEL;
   const check = approvedCheck(process.env.PERRY_TEST_PATH, process.env.PERRY_TEST_MODULE);
   const port = Number(process.env.PERRY_PORT ?? "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PERRY_PORT.");

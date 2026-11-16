@@ -7,7 +7,7 @@ import { renderReport } from "./report.ts";
 import { openSnapshot } from "./snapshot.ts";
 import { testEvidence } from "./test-evidence.ts";
 import { collectContext } from "./model-context.ts";
-import { anthropicBackend, investigate } from "./model-review.ts";
+import { investigate, selectModel } from "./model-review.ts";
 import { answerQuestion } from "./answer.ts";
 
 const usage = [
@@ -15,7 +15,7 @@ const usage = [
   "       pnpm ask:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id> --question <text>",
   "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
   "Add --module <path.mjs> with --test to include one committed dependency.",
-  "Add --anthropic-model <id> to send selected committed source to the Anthropic API.",
+  "Choose at most one API route: --anthropic-model <id>, --openai-model <id> or --opencode-chat-model <id>.",
 ].join("\n");
 
 // A local Git object proves which bytes were inspected. It cannot establish
@@ -31,6 +31,7 @@ async function run(args: string[]) {
     return 0;
   }
   let options;
+  let selection;
   try {
     if (args[0] !== "review" && args[0] !== "ask") throw new Error();
     options = parseArgs({
@@ -38,12 +39,14 @@ async function run(args: string[]) {
       options: {
         repo: { type: "string" }, base: { type: "string" }, head: { type: "string" },
         test: { type: "string" }, module: {type: "string"}, "anthropic-model": { type: "string" },
+        "openai-model": {type: "string"}, "opencode-chat-model": {type: "string"},
         json: { type: "boolean" }, question: { type: "string" },
       },
     }).values;
     if (!options.repo || !options.base || !options.head) throw new Error();
     if (args[0] === "ask" && !options.question) throw new Error();
     if ((options.module && !options.test) || (args[0] === "ask" && options.test)) throw new Error();
+    selection = selectModel(options);
   } catch {
     console.error(usage);
     return 2;
@@ -54,7 +57,7 @@ async function run(args: string[]) {
   try {
     snapshot = await openSnapshot(options.repo, options.base, options.head);
     if (args[0] === "ask") {
-      const answer = await answerQuestion(snapshot, options.question!, options["anthropic-model"]);
+      const answer = await answerQuestion(snapshot, options.question!, selection?.model, selection?.connect);
       console.log(options.json ? JSON.stringify({answer}) : answer);
       return 0;
     }
@@ -74,12 +77,11 @@ async function run(args: string[]) {
     if (!coverage.length) assessment = "completed";
     else if (checked || findings.length) assessment = "partial";
     const checksRun = options.test ? await testEvidence(snapshot, options.test, undefined, options.module) : undefined;
-    const model = options["anthropic-model"];
-    if (model) {
+    if (selection) {
       const context = await collectContext(snapshot);
-      const reviewed = await investigate(context.files, anthropicBackend(model), checksRun, imports.findings);
+      const reviewed = await investigate(context.files, selection.connect(selection.model), checksRun, imports.findings);
       limitations[0] = "Local preview with bounded source and no live GitHub prerequisites.";
-      limitations.push("Requested Anthropic model: " + model + ".", ...context.limitations, ...reviewed.limitations);
+      limitations.push("Requested " + selection.label + " model: " + selection.model + ".", ...context.limitations, ...reviewed.limitations);
       for (const finding of reviewed.findings) {
         const confirmed = imports.findings.find(issue => issue.id === finding.id);
         if (confirmed) {

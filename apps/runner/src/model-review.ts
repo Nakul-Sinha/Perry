@@ -1,4 +1,7 @@
 import type { Finding, Severity } from "./contracts.ts";
+import { openaiMessage } from "./openai.ts";
+import { opencodeMessage } from "./opencode.ts";
+import { postModelJson } from "./provider-http.ts";
 
 export type ContextFile = {
   path: string; ref: "head" | "merge_base" | "base"; sha: string; text: string; changed: boolean;
@@ -31,20 +34,42 @@ export function anthropicBackend(model: string, access = () => process.env.ANTHR
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model)) throw new Error("Select an explicit Anthropic model ID.");
   return async (role, payload) => {
     const apiKey = access();
-    if (!apiKey) throw new MissingModelAccess();
-    const { default: Anthropic } = await import("@anthropic-ai/sdk");
-    const client = new Anthropic({
-      apiKey, baseURL: "https://api.anthropic.com", webhookKey: null, maxRetries: 0,
-      timeout: 45_000, logLevel: "off", fetchOptions: { redirect: "error" },
-    });
-    const message = await client.messages.create({
+    if (!apiKey) throw new MissingModelAccess("Anthropic API access is unavailable. Supply ANTHROPIC_API_KEY to the local Perry process.");
+    const message = await postModelJson("https://api.anthropic.com/v1/messages", apiKey, {
       model, max_tokens: 3_000, system: prompts[role], messages: [{ role: "user", content: payload }],
     });
-    if (message.stop_reason !== "end_turn" || message.content.length !== 1 || message.content[0]?.type !== "text") {
+    if (!record(message) || message.stop_reason !== "end_turn" || !Array.isArray(message.content) || message.content.length !== 1
+      || !record(message.content[0]) || message.content[0].type !== "text" || typeof message.content[0].text !== "string"
+      || !message.content[0].text.trim() || Buffer.byteLength(message.content[0].text) > maxReply) {
       throw new Error("The provider returned an incomplete or unsupported reply.");
     }
     return message.content[0].text;
   };
+}
+
+const providers = [
+  {flag: "anthropic-model", label: "Anthropic", key: "ANTHROPIC_API_KEY"},
+  {flag: "openai-model", label: "OpenAI", key: "OPENAI_API_KEY"},
+  {flag: "opencode-chat-model", label: "OpenCode Chat Completions", key: "OPENCODE_API_KEY"},
+] as const;
+
+export function selectModel(options: Partial<Record<typeof providers[number]["flag"], string | undefined>>) {
+  const selected = providers.filter(p => options[p.flag] !== undefined);
+  if (selected.length === 0) return;
+  if (selected.length > 1) throw new Error("Select one model provider.");
+  const provider = selected[0]!;
+  const model = options[provider.flag]!;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model) || model.trim() !== model) throw new Error("Invalid model ID.");
+  const connect = (id: string): Call => {
+    if (provider.flag === "anthropic-model") return anthropicBackend(id);
+    const send = provider.flag === "openai-model" ? openaiMessage : opencodeMessage;
+    return async (role, payload) => {
+      const key = process.env[provider.key];
+      if (!key) throw new MissingModelAccess(provider.label + " API access is unavailable. Supply " + provider.key + " to the local Perry process.");
+      return send(id, prompts[role], payload, key);
+    };
+  };
+  return {model, label: provider.label, connect};
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -190,7 +215,7 @@ export async function investigate(context: ContextFile[], call: Call, checksRun?
     }
   } catch (error) {
     gaps.add(error instanceof MissingModelAccess
-      ? "Anthropic API access is unavailable. Supply ANTHROPIC_API_KEY to the local Perry process."
+      ? error.message
       : "The model " + stage + " did not return a complete, valid response within the review budget.");
   }
   return result();

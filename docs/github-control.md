@@ -18,7 +18,7 @@ In an open PR, that exact command starts a review and updates the two owned summ
 @Perry where is TAX_RATE defined?
 ```
 
-PR questions inspect the PR head. The pilot skips PR requests when the PR is no longer open. Questions in an ordinary issue inspect its repository's default-branch commit. Without a configured model, the answer lists matching committed source excerpts; it is a bounded search, not a general explanation engine. The optional Anthropic route can answer using those excerpts and validated citations. An issue comment asking exactly `@Perry review` gets a clarification to select a PR.
+PR questions inspect the PR head. The pilot skips PR requests when the PR is no longer open. Questions in an ordinary issue inspect its repository's default-branch commit. Without a configured model, the answer lists matching committed source excerpts; it is a bounded search, not a general explanation engine. The selected API route can answer using those excerpts and validated citations. An issue comment asking exactly `@Perry review` gets a clarification to select a PR.
 
 Only `issue_comment` events with action `created` are processed. The mention must start the direct comment, allowing up to three leading spaces or initial blank lines. Quoted/fenced examples, inline review-thread comments, edits, bots, and empty requests do not trigger work. `@Perry review this PR` is a question rather than the exact review command. Effective repository write, maintain, or admin access is required; installation and comment ownership are checked again before publication.
 
@@ -49,8 +49,11 @@ Supply configuration through the trusted process environment. Keep actual access
 | `PERRY_TEST_PATH` | Optional operator-selected `.test.mjs` path for each PR review on a rootless Linux host. |
 | `PERRY_TEST_MODULE` | Optional `.mjs` dependency imported by that test, relative to the repository root. |
 | `PERRY_PORT` | Optional localhost port, default `3000`. |
-| `PERRY_ANTHROPIC_MODEL` | Optional account-available Anthropic model ID. Without it, the pilot uses static review and source-excerpt answers. |
-| `ANTHROPIC_API_KEY` | Required by the optional Anthropic runner route; supply through an authorized local runtime configuration. |
+| `PERRY_ANTHROPIC_MODEL` | Select Anthropic Messages with `ANTHROPIC_API_KEY`. |
+| `PERRY_OPENAI_MODEL` | Select OpenAI Responses with `OPENAI_API_KEY`. |
+| `PERRY_OPENCODE_CHAT_MODEL` | Select OpenCode Console Chat Completions with `OPENCODE_API_KEY`. |
+
+Configure at most one model variable. Start with all three unset for static reviews and excerpt answers. Supply the chosen route's key privately in the service environment. The runner receives only the key for that route. Provider selection applies to both reviews and questions.
 
 The allowlist is one installation/repository pair per process. Other signed installation/repository events are not queued. Changing the allowlist does not migrate another installation's pending work or grant access to it.
 

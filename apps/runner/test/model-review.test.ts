@@ -34,12 +34,14 @@ test("both model passes receive the same independent check outcomes", async () =
   assert.equal(review.findings.length, 1);
 });
 
-test("the Anthropic SDK sends independent requests to the selected model and rejects truncated replies", async t => {
+test("Anthropic sends only the selected credential and rejects truncated replies", async t => {
   // This process uses an in-process HTTP transport and a public fixture value.
   t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init);
     assert.equal(request.url, "https://api.anthropic.com/v1/messages");
     assert.equal(request.headers.get("authorization"), "Bearer fixture-access");
+    assert.equal(request.headers.get("x-api-key"), null);
+    assert.equal(request.headers.get("anthropic-version"), "2026-10-21");
     const body = await request.json();
     assert.equal(body.messages.length, 1);
     assert.equal(body.model, "fixture-model");
