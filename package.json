@@ -14,6 +14,8 @@
     "test": "node --test \"apps/runner/test/*.test.ts\" \"apps/control/test/*.test.ts\"",
     "review:local": "node apps/runner/src/index.ts review",
     "ask:local": "node apps/runner/src/index.ts ask",
+    "runner:pair": "node apps/runner/src/index.ts pair",
+    "runner:status": "node apps/runner/src/index.ts pair-status",
     "review:fixture": "node tools/fixtures/review.ts",
     "check:model": "node tools/compatibility/model-live.ts",
     "check:baseline": "node tools/evaluation/static-baseline.ts",
