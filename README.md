@@ -107,14 +107,23 @@ These commands sign in to the provider, not Perry. Connecting that session to Pe
 
 ### Bring your own key
 
-The local runner has an opt-in Anthropic Messages API adapter. Supply `ANTHROPIC_API_KEY` to the Perry process through your local secret store. Pick a model ID available to your Anthropic account. Provider usage is billed to that account. These examples run against synthetic Git history:
+For Anthropic, use a key scoped to the intended workspace. Choose one API route and supply its key to the Perry process through your local secret store. Use a model ID available on that account. The following commands review synthetic Git history.
+
+| Route | Runtime key | Model flag |
+| --- | --- | --- |
+| Anthropic Messages | `ANTHROPIC_API_KEY` | `--anthropic-model` |
+| OpenAI Responses | `OPENAI_API_KEY` | `--openai-model` |
+| OpenCode Console Chat Completions | `OPENCODE_API_KEY` | `--opencode-chat-model` |
 
 ```sh
 pnpm review:fixture empty-cart --anthropic-model MODEL_ID
-pnpm review:fixture cart-refactor --anthropic-model MODEL_ID
+pnpm review:fixture empty-cart --openai-model MODEL_ID
+pnpm review:fixture empty-cart --opencode-chat-model MODEL_ID
 ```
 
-For your own checkout, add the same flag to `pnpm review:local`. The option sends selected committed source, approved base plans and related callers to Anthropic. Static-only reviews stay local. Perry checks model citations against both revisions and sends candidate findings to a fresh verifier. Reports identify unavailable or incomplete model responses. The adapter has automated transport and verification tests. Live account acceptance is pending. OpenAI and OpenCode adapters and native CLI connections are planned.
+Add the same flag to `pnpm review:local` or `pnpm ask:local` for your own checkout. Reviews send selected committed source, base plans and callers to the chosen provider for investigation and independent verification. Questions send the question and selected excerpts. With no model flag, assessment stays local. Perry uses the selected billing route for both passes and identifies incomplete or unavailable results.
+
+The OpenAI route sends stateless requests with response storage disabled. The OpenCode route supports eligible models served by its Chat Completions endpoint. Its free-tier chat models require the OpenCode client. Provider integration tests use simulated responses. Live validation is tracked in [#5](https://github.com/Nakul-Sinha/Perry/issues/5) and [#7](https://github.com/Nakul-Sinha/Perry/issues/7). [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create), [OpenCode inference API](https://opencode.ai/docs/console/api/inference/).
 
 Until the connection flow ships, you can give your coding agent this prompt:
 

@@ -8,6 +8,29 @@ import type { Bodies, Refs } from "./worker.ts";
 const runner = fileURLToPath(new URL(import.meta.url.endsWith(".ts")
   ? "../../runner/src/index.ts" : "../../runner/dist/index.js", import.meta.url));
 
+const providers = {
+  anthropic: {setting: "PERRY_ANTHROPIC_MODEL", flag: "--anthropic-model", key: "ANTHROPIC_API_KEY"},
+  openai: {setting: "PERRY_OPENAI_MODEL", flag: "--openai-model", key: "OPENAI_API_KEY"},
+  "opencode-chat": {setting: "PERRY_OPENCODE_CHAT_MODEL", flag: "--opencode-chat-model", key: "OPENCODE_API_KEY"},
+} as const;
+
+export interface ApprovedModel {provider: keyof typeof providers; model: string}
+
+export function approvedModel(env: NodeJS.ProcessEnv): ApprovedModel | undefined {
+  const selected = (Object.keys(providers) as ApprovedModel["provider"][])
+    .filter(provider => env[providers[provider].setting] !== undefined);
+  if (!selected.length) return;
+  if (selected.length !== 1) {
+    throw new Error("Configure PERRY_ANTHROPIC_MODEL, PERRY_OPENAI_MODEL or PERRY_OPENCODE_CHAT_MODEL with exactly one model.");
+  }
+  const provider = selected[0]!;
+  const model = env[providers[provider].setting]!;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model) || model.trim() !== model) {
+    throw new Error("Configure " + providers[provider].setting + " with an explicit model ID.");
+  }
+  return {provider, model};
+}
+
 export interface ApprovedCheck {testPath: string; modulePath?: string}
 
 export function approvedCheck(testPath?: string, modulePath?: string): ApprovedCheck | undefined {
@@ -22,10 +45,12 @@ export function approvedCheck(testPath?: string, modulePath?: string): ApprovedC
   return modulePath ? {testPath, modulePath} : {testPath};
 }
 
-export async function runLocal(repo: string, r: MentionRequest, refs: Refs, signal: AbortSignal, model?: string, check?: ApprovedCheck): Promise<Bodies> {
+export async function runLocal(repo: string, r: MentionRequest, refs: Refs, signal: AbortSignal,
+  model?: string | ApprovedModel, check?: ApprovedCheck,
+  runtime: {env: NodeJS.ProcessEnv; execute: typeof execFile} = {env: process.env, execute: execFile}): Promise<Bodies> {
   const args = [runner, r.kind === "review" ? "review" : "ask", "--json", "--repo", repo, "--base", refs.base, "--head", refs.head];
   if (r.kind === "question") args.push("--question=" + r.text);
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot };
+  const env: NodeJS.ProcessEnv = { PATH: runtime.env.PATH, SystemRoot: runtime.env.SystemRoot };
   const selected = r.kind === "review" && refs.sameRepository === true ? check : undefined;
   if (selected) {
     args.push("--test=" + selected.testPath);
@@ -33,15 +58,17 @@ export async function runLocal(repo: string, r: MentionRequest, refs: Refs, sign
     // Rootless Podman locates the user's local engine through these directories.
     // The container gets its own empty environment and no host mounts.
     for (const name of ["HOME", "USER", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
-      if (process.env[name]) env[name] = process.env[name];
+      if (runtime.env[name]) env[name] = runtime.env[name];
     }
   }
   if (model) {
-    args.push("--anthropic-model", model);
-    env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    const selectedModel = typeof model === "string" ? approvedModel({PERRY_ANTHROPIC_MODEL: model})! : model;
+    const provider = providers[selectedModel.provider];
+    args.push(provider.flag, selectedModel.model);
+    if (runtime.env[provider.key]) env[provider.key] = runtime.env[provider.key];
   }
   const body = await new Promise<string>((resolve, reject) => {
-    execFile(process.execPath, args, { env, signal, timeout: selected ? 250_000 : 150_000, maxBuffer: 1024 * 1024, windowsHide: true },
+    runtime.execute(process.execPath, args, { env, signal, timeout: selected ? 250_000 : 150_000, maxBuffer: 1024 * 1024, windowsHide: true },
       (error, stdout) => {
         if (error && error.code !== 1) reject(new Error("Local runner unavailable."));
         else resolve(stdout);

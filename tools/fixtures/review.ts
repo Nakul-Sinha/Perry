@@ -12,8 +12,9 @@ if (scenario === "--list" && process.argv.length === 3) {
   process.exit(0);
 }
 const modelArgs = process.argv.slice(3);
-if (!names.includes(scenario) || (modelArgs.length && (modelArgs.length !== 2 || modelArgs[0] !== "--anthropic-model" || !modelArgs[1]))) {
-  console.error("Usage: pnpm review:fixture [case] [--anthropic-model MODEL_ID]. Use --list to see case names.");
+const modelFlags = ["--anthropic-model", "--openai-model", "--opencode-chat-model"];
+if (!names.includes(scenario) || (modelArgs.length && (modelArgs.length !== 2 || !modelFlags.includes(modelArgs[0]!) || !modelArgs[1]))) {
+  console.error("Usage: pnpm review:fixture [case] [--anthropic-model | --openai-model | --opencode-chat-model MODEL_ID]. Use --list to see case names.");
   process.exit(2);
 }
 
