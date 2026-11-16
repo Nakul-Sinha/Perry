@@ -9,6 +9,8 @@ import { webhookHandler } from "./intake.ts";
 import { approvedCheck, approvedModel, runLocal } from "./local-runner.ts";
 import { Store } from "./store.ts";
 import { checkReview, processMention } from "./worker.ts";
+import { PairingStore } from "./pairing-store.ts";
+import { issueCodeFile, PairingFileError, runnerHandler } from "./pairing.ts";
 
 function required(name: string) {
   const value = process.env[name];
@@ -19,7 +21,26 @@ function required(name: string) {
 async function main() {
   const installation = required("PERRY_INSTALLATION_ID");
   const repository = required("PERRY_REPOSITORY_ID");
+  if (![installation, repository].every(id => /^[1-9]\d{0,19}$/.test(id))) throw new Error("Invalid repository or installation ID.");
+  const scope = {installationId: installation, repoId: repository};
   const args = process.argv.slice(2);
+  if (args[0] === "--issue-pairing" || args[0] === "--revoke-runner") {
+    if (args.length !== 2 || !args[1]) throw new Error("Provide a destination file or runner ID.");
+    const pool = new Pool({connectionString: required("DATABASE_URL"), connectionTimeoutMillis: 4000});
+    try {
+      const pairs = new PairingStore(pool);
+      await pairs.init();
+      if (args[0] === "--issue-pairing") {
+        await issueCodeFile(pairs, scope, args[1]);
+        console.log("Wrote a single-use pairing code valid for ten minutes.");
+      } else {
+        const revoked = await pairs.revoke(scope, args[1]);
+        console.log(revoked ? "Revoked the runner." : "No active matching runner.");
+        if (!revoked) process.exitCode = 1;
+      }
+    } finally { await pool.end(); }
+    return;
+  }
   if (args.length) {
     const [flag, scope, repoId, number, comment] = args;
     if (args.length !== 5 || flag !== "--retry" || scope !== installation || repoId !== repository
@@ -40,7 +61,6 @@ async function main() {
   const check = approvedCheck(process.env.PERRY_TEST_PATH, process.env.PERRY_TEST_MODULE);
   const port = Number(process.env.PERRY_PORT ?? "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PERRY_PORT.");
-  if (![installation, repository].every(id => /^[1-9]\d*$/.test(id))) throw new Error("Invalid repository or installation ID.");
   const github = new GitHubGateway({
     appId: required("PERRY_APP_ID"), botId: required("PERRY_BOT_ID"),
     privateKey: await readFile(required("PERRY_APP_KEY_FILE"), "utf8"),
@@ -49,6 +69,9 @@ async function main() {
   pool.on("error", () => console.error("An idle database connection closed."));
   const store = new Store(pool);
   await store.init();
+  const pairs = new PairingStore(pool);
+  await pairs.init();
+  const runners = runnerHandler(pairs, scope);
   const intake = webhookHandler(signingSecret, async (delivery, request) => {
     if (request.installationId === installation && request.repoId === repository) await store.accept(delivery, request);
   });
@@ -61,7 +84,8 @@ async function main() {
       );
       return;
     }
-    void intake(req, res).catch(() => { if (!res.headersSent) res.writeHead(500); res.end(); });
+    const handler = req.url?.startsWith("/runners/") ? runners : intake;
+    void handler(req, res).catch(() => { if (!res.headersSent) res.writeHead(503, {"Cache-Control": "no-store"}); res.end(); });
   });
   server.headersTimeout = 10_000;
   server.requestTimeout = 15_000;
@@ -71,7 +95,6 @@ async function main() {
   const stop = () => { stopping = true; server.close(); };
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
-  const scope = {installationId: installation, repoId: repository};
   let nextPoll = 0;
   try {
     while (!stopping) {
@@ -97,7 +120,7 @@ async function main() {
 }
 
 main().catch(error => {
-  const message = error instanceof Error && error.message.startsWith("Configure PERRY_") ? error.message : "Perry control could not start. Check the database, App configuration and port.";
+  const message = error instanceof PairingFileError || error instanceof Error && error.message.startsWith("Configure PERRY_") ? error.message : "Perry control could not start. Check the database, App configuration and port.";
   console.error(message);
   process.exitCode = 1;
 });

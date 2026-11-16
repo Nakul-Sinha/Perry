@@ -9,10 +9,13 @@ import { testEvidence } from "./test-evidence.ts";
 import { collectContext } from "./model-context.ts";
 import { investigate, selectModel } from "./model-review.ts";
 import { answerQuestion } from "./answer.ts";
+import { runPairCommand } from "./pair-cli.ts";
 
 const usage = [
   "Usage: pnpm review:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id>",
   "       pnpm ask:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id> --question <text>",
+  "       pnpm runner:pair --server <origin> --code-file <file> --identity <new-file>",
+  "       pnpm runner:status --identity <file>",
   "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
   "Add --module <path.mjs> with --test to include one committed dependency.",
   "Choose at most one API route: --anthropic-model <id>, --openai-model <id> or --opencode-chat-model <id>.",
@@ -29,6 +32,13 @@ async function run(args: string[]) {
   if (!args.length || (args.length === 1 && ["--help", "-h"].includes(args[0]!))) {
     console.log(usage);
     return 0;
+  }
+  if (args[0] === "pair" || args[0] === "pair-status") {
+    try { await runPairCommand(args); return 0; }
+    catch (error) {
+      console.error(error instanceof Error ? error.message : "Runner enrollment request failed.");
+      return 1;
+    }
   }
   let options;
   let selection;
