@@ -136,6 +136,8 @@ If the connection is not implemented, explain what is missing and stop.
 Do not invent commands or start implementing features without asking.
 ```
 
+The [runner pairing guide](docs/runner-pairing.md) covers enrollment, private identity files and revocation. Remote job execution is being integrated.
+
 The workspace starts with `apps/control` for GitHub integration and `apps/runner` for local execution. Shared configuration lives in `config/`, and the project documents live in `docs/`.
 
 ## References and inspiration
