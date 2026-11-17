@@ -13,6 +13,8 @@ import { PairingStore } from "./pairing-store.ts";
 import { issueCodeFile, PairingFileError, runnerHandler } from "./pairing.ts";
 import { RemoteStore } from "./remote-store.ts";
 import { awaitRemote, remoteHandler } from "./remote.ts";
+import { UsageStore } from "./usage-store.ts";
+import { assessmentAdmission, dailyAssessmentLimit } from "./assessment-budget.ts";
 
 function required(name: string) {
   const value = process.env[name];
@@ -26,6 +28,19 @@ async function main() {
   if (![installation, repository].every(id => /^[1-9]\d{0,19}$/.test(id))) throw new Error("Invalid repository or installation ID.");
   const scope = {installationId: installation, repoId: repository};
   const args = process.argv.slice(2);
+  if (args[0] === "--usage") {
+    if (args.length !== 1) throw new Error("Configure PERRY_INSTALLATION_ID and PERRY_REPOSITORY_ID, then run --usage without arguments.");
+    const limit = dailyAssessmentLimit(process.env.PERRY_DAILY_ASSESSMENT_LIMIT);
+    const pool = new Pool({connectionString: required("DATABASE_URL"), connectionTimeoutMillis: 4000});
+    try {
+      const usage = new UsageStore(pool);
+      await usage.init();
+      const totals = await usage.totals(scope);
+      console.log("UTC day: " + totals.date + "\nAdmitted assessments: " + totals.used
+        + "\nDaily limit: " + (limit ?? "unlimited") + "\nCounts include admissions while a limit is enabled.");
+    } finally { await pool.end(); }
+    return;
+  }
   if (args[0] === "--issue-pairing" || args[0] === "--revoke-runner") {
     if (args.length !== 2 || !args[1]) throw new Error("Provide a destination file or runner ID.");
     const pool = new Pool({connectionString: required("DATABASE_URL"), connectionTimeoutMillis: 4000});
@@ -57,6 +72,7 @@ async function main() {
     } finally { await pool.end(); }
     return;
   }
+  const limit = dailyAssessmentLimit(process.env.PERRY_DAILY_ASSESSMENT_LIMIT);
   const model = approvedModel(process.env);
   const execution = process.env.PERRY_EXECUTION_MODE ?? "local";
   if (!["local","remote"].includes(execution)) throw new Error("Configure PERRY_EXECUTION_MODE as local or remote.");
@@ -76,6 +92,8 @@ async function main() {
   pool.on("error", () => console.error("An idle database connection closed."));
   const store = new Store(pool);
   await store.init();
+  const usage = new UsageStore(pool);
+  if (limit !== undefined) await usage.init();
   const pairs = new PairingStore(pool);
   await pairs.init();
   const runners = runnerHandler(pairs, scope);
@@ -119,6 +137,8 @@ async function main() {
         const active = await store.workOne(async (request, job) => {
           const currentJob = {...job, signal: AbortSignal.any([job.signal, shutdown.signal])};
           return processMention(request, currentJob, github, async (r, refs, signal) => {
+            const denied = await assessmentAdmission(usage, r, refs, limit, signal);
+            if (denied) return denied;
             if (execution === "remote") return awaitRemote(remote,r,refs,signal);
             const token = await github.sourceToken(r, signal);
             const repo = await prepareCache(cache, r, refs, token, signal);
