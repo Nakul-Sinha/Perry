@@ -14,6 +14,7 @@ import { webhookHandler, type MentionRequest } from "../src/intake.ts";
 import { approvedCheck, runLocal } from "../src/local-runner.ts";
 import { Store } from "../src/store.ts";
 import { processMention } from "../src/worker.ts";
+import { unavailableReadiness } from "../src/readiness.ts";
 
 const connectionString = process.env.PERRY_TEST_DATABASE_URL;
 
@@ -69,11 +70,13 @@ test("signed mentions reach the runner, reconcile the PR pair and leave question
   }
 
   const comments = new Map<string, {id: string; body: string}>();
+  const readiness = unavailableReadiness({base,head});
   let runs = 0;
   let permission = true;
   let sameRepository = true;
   const github = {
     async authorize() { return permission; }, async refs() { return {base, head, sameRepository}; },
+    async readiness() { return readiness; },
     async writeSlot(r: MentionRequest, slot: CommentSlot, body: string, receipt?: string, create = true,
       _signal?: AbortSignal, beforeWrite?: () => Promise<void>) {
       const name = slot === "answer" ? slot + r.commentId : slot;

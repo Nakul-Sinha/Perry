@@ -1,17 +1,19 @@
 import type { CommentSlot, GitHubGateway } from "./github.ts";
 import type { MentionRequest } from "./intake.ts";
 import type { Job } from "./store.ts";
+import { reviseReadiness, unavailableReadiness, type ReadinessRevision } from "./readiness.ts";
 
 export interface Refs { base: string; head: string; sameRepository?: boolean }
 export interface Observation extends Refs { closed: boolean }
 export type Bodies = { summary: string; findings: string } | { answer: string };
 type Assessment = { refs: Refs; bodies: Bodies };
-type Gateway = Pick<GitHubGateway, "authorize" | "refs" | "writeSlot">;
+type Gateway = Pick<GitHubGateway, "authorize" | "refs" | "writeSlot"> & Partial<Pick<GitHubGateway, "readiness">>;
+export interface PublishedReview extends Refs { readiness?: ReadinessRevision }
 type Evaluate = (request: MentionRequest, refs: Refs, signal: AbortSignal) => Promise<Bodies>;
 const hold = (reason: string) => "## Perry review\n\n**HOLD | 0/10 merge readiness (provisional)**\n\n" + reason;
 const stale = "The pull request changed during this review. Request a new review for the current commits.";
 
-export async function processMention(r: MentionRequest, job: Job, github: Gateway, evaluate: Evaluate) {
+export async function processMention(r: MentionRequest, job: Job, github: Gateway, evaluate: Evaluate): Promise<PublishedReview | void> {
   async function write(slot: CommentSlot, body: string) {
     job.signal.throwIfAborted();
     const saved = await job.getSlot(slot);
@@ -70,8 +72,14 @@ export async function processMention(r: MentionRequest, job: Job, github: Gatewa
     return refs;
   }
   await write("findings", bodies.findings + stamp);
-  await write("summary", (await fresh() ? bodies.summary : hold(stale)) + stamp);
-  return refs;
+  const facts = github.readiness ? await github.readiness(r, refs, job.signal) : unavailableReadiness(refs);
+  const revision = reviseReadiness(bodies.summary, facts);
+  if (facts.freshness === "stale" || !await fresh()) {
+    await write("summary", hold(stale) + stamp);
+    return refs;
+  }
+  await write("summary", revision.summary + stamp);
+  return {...refs, readiness: revision};
 }
 
 export type ReviewWatch = {
@@ -81,19 +89,51 @@ export type ReviewWatch = {
   summary: string;
   findings: string;
   signal: AbortSignal;
+  assessmentSummary: string;
+  readiness: ReadinessRevision | null;
+  pendingReadiness: ReadinessRevision | null;
   begin(observed: Observation): Promise<boolean>;
+  beginReadiness(revision: ReadinessRevision): Promise<boolean>;
+  finishReadiness(): Promise<void>;
 };
 
-export async function checkReview(watch: ReviewWatch, github: Pick<GitHubGateway, "observeReview" | "invalidateSlot">) {
+export async function checkReview(watch: ReviewWatch, github: Pick<GitHubGateway, "observeReview" | "invalidateSlot"> & Partial<Pick<GitHubGateway, "readiness" | "refreshSummary">>) {
   const { request, refs, signal } = watch;
   signal.throwIfAborted();
   const observed = watch.observed ?? await github.observeReview(request, signal);
-  if (!observed.closed && observed.head === refs.head && observed.base === refs.base) return false;
-  // Persist the first observation before touching either slot. On restart we
-  // finish that pair even if refs have since moved back to the original SHA.
-  if (!watch.observed && !await watch.begin(observed)) return false;
-  await github.invalidateSlot(request, "summary", watch.summary, refs, observed, signal);
-  signal.throwIfAborted();
-  await github.invalidateSlot(request, "findings", watch.findings, refs, observed, signal);
-  return true;
+  async function invalidate(now: Observation) {
+    // Persist the first observation before touching either slot. On restart we
+    // finish that pair even if refs have since moved back to the original SHA.
+    if (!watch.observed && !await watch.begin(now)) return false;
+    await github.invalidateSlot(request, "summary", watch.summary, refs, now, signal);
+    signal.throwIfAborted();
+    await github.invalidateSlot(request, "findings", watch.findings, refs, now, signal);
+    return true;
+  }
+  if (watch.observed || observed.closed || observed.head !== refs.head || observed.base !== refs.base) return invalidate(observed);
+  if (!github.refreshSummary || !github.readiness) return false;
+  let published = watch.readiness;
+  async function publish(revision: ReadinessRevision) {
+    signal.throwIfAborted();
+    const stamp = "\n\nRequested base `" + refs.base + "`, head `" + refs.head + "`.";
+    const moved = await github.refreshSummary!(request, watch.summary, refs, revision.summary + stamp, signal);
+    if (moved) return moved;
+    signal.throwIfAborted();
+    await watch.finishReadiness();
+    published = revision;
+    return null;
+  }
+  // A persisted uncertain update fences newer review jobs. Confirm it before
+  // publishing newer facts, using the same ID and exact body on retry.
+  if (watch.pendingReadiness) {
+    const moved = await publish(watch.pendingReadiness);
+    if (moved) return invalidate(moved);
+  }
+  const facts = await github.readiness(request, refs, signal);
+  if (facts.freshness === "stale") return invalidate(await github.observeReview(request, signal));
+  if (facts.fingerprint === published?.facts.fingerprint) return false;
+  const revision = reviseReadiness(watch.assessmentSummary, facts);
+  if (!await watch.beginReadiness(revision)) return false;
+  const moved = await publish(revision);
+  return moved ? invalidate(moved) : false;
 }

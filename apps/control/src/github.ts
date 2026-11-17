@@ -3,9 +3,14 @@ import { Octokit } from "@octokit/rest";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { parseMention, type MentionRequest } from "./intake.ts";
 import type { Observation, Refs } from "./worker.ts";
+import { collectReadiness, unavailableReadiness } from "./readiness.ts";
 
 export type CommentSlot = "summary" | "findings" | "answer";
 export class UncertainComment extends Error {}
+class MovedReview extends Error {
+  readonly observed: Observation;
+  constructor(observed: Observation) { super("The reviewed commits changed."); this.observed = observed; }
+}
 
 interface GitHubConfig { appId: string; privateKey: string; botId: string }
 interface Comment {
@@ -120,6 +125,20 @@ export class GitHubGateway {
     }
   }
 
+  async readiness(r: MentionRequest, expected: Refs, signal: AbortSignal) {
+    try {
+      signal.throwIfAborted();
+      if (r.kind !== "review" || !r.isPR) return unavailableReadiness(expected);
+      const deadline = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      const api = await this.client(r, deadline);
+      if (!await this.granted(r, api, deadline)) return unavailableReadiness(expected);
+      return await collectReadiness(api, r, expected, deadline);
+    } catch {
+      signal.throwIfAborted();
+      return unavailableReadiness(expected);
+    }
+  }
+
   async observeReview(r: MentionRequest, signal: AbortSignal): Promise<Observation> {
     if (!r.isPR || r.kind !== "review") throw new Error("Expected a pull request review.");
     const api = await this.client(r, signal);
@@ -140,6 +159,24 @@ export class GitHubGateway {
       + "\n\nReviewed base `" + refs.base + "`, head `" + refs.head + "`."
       + "\n\nObserved base `" + observed.base + "`, head `" + observed.head + "`.";
     await this.publish(r, slot, body, id, false, signal);
+  }
+
+  async refreshSummary(r: MentionRequest, id: string, refs: Refs, body: string, signal: AbortSignal): Promise<Observation | null> {
+    if (!r.isPR || r.kind !== "review" || !/^[1-9]\d*$/.test(id)) throw new Error("Expected an existing review summary.");
+    const api = await this.client(r, signal);
+    if (!await this.granted(r, api, signal)) throw new Error("Review installation is unavailable.");
+    try {
+      // This is maintenance of an owned review. Its initiating human comment
+      // may have been edited or deleted since publication.
+      await this.publish(r, "summary", body, id, false, signal, undefined, async () => {
+        const now = await this.observeReview(r, signal);
+        if (now.closed || now.base !== refs.base || now.head !== refs.head) throw new MovedReview(now);
+      });
+      return null;
+    } catch (error) {
+      if (error instanceof MovedReview) return error.observed;
+      throw error;
+    }
   }
 
   async refs(r: MentionRequest, signal?: AbortSignal): Promise<Refs | null> {
@@ -176,7 +213,7 @@ export class GitHubGateway {
   }
 
   private async publish(r: MentionRequest, slot: CommentSlot, body: string, knownId: string | undefined, canCreate: boolean,
-    signal?: AbortSignal, reserve?: () => Promise<void>): Promise<string> {
+    signal?: AbortSignal, reserve?: () => Promise<void>, beforeWrite?: () => Promise<void>): Promise<string> {
     if ((r.kind === "review") !== (slot !== "answer") || (r.kind === "review" && !r.isPR)) {
       throw new Error("Invalid GitHub comment destination.");
     }
@@ -205,6 +242,7 @@ export class GitHubGateway {
       }
       if (target) {
         await reserve?.();
+        await beforeWrite?.();
         signal?.throwIfAborted();
         if (target.body !== rendered) await api.rest.issues.updateComment({ ...repo, comment_id: target.id, body: rendered });
         return String(target.id);
@@ -218,7 +256,7 @@ export class GitHubGateway {
       if (!owned(data)) throw new UncertainComment("GitHub returned an unverified comment receipt.");
       return String(data.id);
     } catch (error) {
-      if (error instanceof UncertainComment) throw error;
+      if (error instanceof UncertainComment || error instanceof MovedReview) throw error;
       throw new Error("GitHub comment publication could not be confirmed.");
     }
   }
