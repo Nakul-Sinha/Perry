@@ -30,7 +30,7 @@ The client preserves an existing identity. Status checks verify its original ser
 
 ## Run reviews on the paired device
 
-Set `PERRY_EXECUTION_MODE=remote` on the control host before starting it. Configure API models and selected runtime checks on the runner. The control service needs its database and GitHub App configuration.
+Set `PERRY_EXECUTION_MODE=remote` on the control host before starting it. Configure the selected API or native CLI model and runtime checks on the runner. The control service needs its database and GitHub App configuration.
 
 After pairing, create a private cache directory on the runner device and start polling.
 
@@ -40,6 +40,8 @@ pnpm runner:serve --identity /path/to/private-perry/identity --cache /path/to/pr
 ```
 
 Choose one model flag, such as `--openai-model MODEL_ID`, and supply that provider's key privately to the runner process. Omitting model flags uses static review and source excerpts. Add `--test tests/total.test.mjs --module src/total.mjs` to use the supported rootless Node check for a verified same-repository PR.
+
+For an eligible native Claude login on the paired Linux/WSL device, choose `--claude-cli-model MODEL_ID` instead of an API model flag. Complete the [native CLI setup](native-cli.md) on that device first. The control service does not receive the login session.
 
 Keep both workspace applications together when building or distributing Perry. The runner reuses the cache and assessment implementations from the matching control package. It has no database connection or GitHub comment-writing identity. The service releases a repository-scoped read grant after checking the request and lease.
 

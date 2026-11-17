@@ -54,8 +54,9 @@ Supply configuration through the trusted process environment. Keep actual access
 | `PERRY_ANTHROPIC_MODEL` | Select Anthropic Messages with `ANTHROPIC_API_KEY`. |
 | `PERRY_OPENAI_MODEL` | Select OpenAI Responses with `OPENAI_API_KEY`. |
 | `PERRY_OPENCODE_CHAT_MODEL` | Select OpenCode Console Chat Completions with `OPENCODE_API_KEY`. |
+| `PERRY_CLAUDE_CLI_MODEL` | Select the native Claude Code pilot on the Linux/WSL host with its own supported login. |
 
-Configure at most one model variable. Start with all three unset for static reviews and excerpt answers. Supply the chosen route's key privately in the service environment. The runner receives only the key for that route. Provider selection applies to both reviews and questions.
+Configure at most one model variable. Start with all model variables unset for static reviews and excerpt answers. Supply the chosen API route's key privately in the service environment. The runner receives only that route's key. The native Claude route uses its own login and receives no API keys. See the [native CLI guide](native-cli.md) for its version, platform and account restrictions. Provider selection applies to both reviews and questions.
 
 The allowlist is one installation/repository pair per process. Other signed installation/repository events are not queued. Changing the allowlist does not migrate another installation's pending work or grant access to it.
 
