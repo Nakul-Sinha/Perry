@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { privateCacheDirectory, readRunnerIdentity, type Identity } from "./pair-cli.ts";
+import { selectModel } from "./model-review.ts";
 
 type Request = {
   installationId: string; repoId: string; owner: string; repo: string; number: number;
@@ -149,6 +150,7 @@ export async function runRemote(args: string[]): Promise<void> {
     const result = parseArgs({args:args.slice(1), tokens:true, options:{
       identity:{type:"string"}, cache:{type:"string"}, test:{type:"string"}, module:{type:"string"},
       "anthropic-model":{type:"string"}, "openai-model":{type:"string"}, "opencode-chat-model":{type:"string"},
+      "claude-cli-model":{type:"string"},
     }});
     const names = result.tokens.map(t => t.kind === "option" ? t.name : "");
     values = result.values;
@@ -161,7 +163,7 @@ export async function runRemote(args: string[]): Promise<void> {
   const {prepareCache} = await import(sibling("cache"));
   const {runLocal, approvedModel, approvedCheck} = await import(sibling("local-runner"));
   const model = approvedModel({PERRY_ANTHROPIC_MODEL:values["anthropic-model"], PERRY_OPENAI_MODEL:values["openai-model"],
-    PERRY_OPENCODE_CHAT_MODEL:values["opencode-chat-model"]});
+    PERRY_OPENCODE_CHAT_MODEL:values["opencode-chat-model"], PERRY_CLAUDE_CLI_MODEL:values["claude-cli-model"]});
   const check = approvedCheck(values.test, values.module);
   const id = await readRunnerIdentity(values.identity);
   const cache = await privateCacheDirectory(values.cache);
@@ -170,6 +172,7 @@ export async function runRemote(args: string[]): Promise<void> {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
   try {
+    await selectModel(values, stop.signal)?.preflight?.();
     while (!stop.signal.aborted) {
       let delay = 0;
       try {

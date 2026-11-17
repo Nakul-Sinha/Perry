@@ -11,6 +11,7 @@ import { investigate, selectModel } from "./model-review.ts";
 import { answerQuestion } from "./answer.ts";
 import { runPairCommand } from "./pair-cli.ts";
 import { runRemote } from "./remote-runner.ts";
+import { NativeClaudeUnavailable } from "./native-claude.ts";
 
 const usage = [
   "Usage: pnpm review:local --repo <checkout-root> --base <full-commit-id> --head <full-commit-id>",
@@ -20,7 +21,7 @@ const usage = [
   "       pnpm runner:serve --identity <file> --cache <private-directory>",
   "Add --test <path.test.mjs> to run a self-contained test in rootless Podman.",
   "Add --module <path.mjs> with --test to include one committed dependency.",
-  "Choose at most one API route: --anthropic-model <id>, --openai-model <id> or --opencode-chat-model <id>.",
+  "Choose one model route: --anthropic-model <id>, --openai-model <id>, --opencode-chat-model <id> or --claude-cli-model <id>.",
 ].join("\n");
 
 // A local Git object proves which bytes were inspected. It cannot establish
@@ -48,6 +49,7 @@ async function run(args: string[]) {
   }
   let options;
   let selection;
+  const stopped = new AbortController();
   try {
     if (args[0] !== "review" && args[0] !== "ask") throw new Error();
     options = parseArgs({
@@ -56,13 +58,14 @@ async function run(args: string[]) {
         repo: { type: "string" }, base: { type: "string" }, head: { type: "string" },
         test: { type: "string" }, module: {type: "string"}, "anthropic-model": { type: "string" },
         "openai-model": {type: "string"}, "opencode-chat-model": {type: "string"},
+        "claude-cli-model": {type: "string"},
         json: { type: "boolean" }, question: { type: "string" },
       },
     }).values;
     if (!options.repo || !options.base || !options.head) throw new Error();
     if (args[0] === "ask" && !options.question) throw new Error();
     if ((options.module && !options.test) || (args[0] === "ask" && options.test)) throw new Error();
-    selection = selectModel(options);
+    selection = selectModel(options, stopped.signal);
   } catch {
     console.error(usage);
     return 2;
@@ -70,10 +73,18 @@ async function run(args: string[]) {
 
   let snapshot: Snapshot | null = null;
   let input: ReportInput;
+  const shutdown = () => stopped.abort();
+  if (selection?.preflight) {
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  }
   try {
+    await selection?.preflight?.();
+    stopped.signal.throwIfAborted();
     snapshot = await openSnapshot(options.repo, options.base, options.head);
     if (args[0] === "ask") {
       const answer = await answerQuestion(snapshot, options.question!, selection?.model, selection?.connect);
+      stopped.signal.throwIfAborted();
       console.log(options.json ? JSON.stringify({answer}) : answer);
       return 0;
     }
@@ -96,8 +107,10 @@ async function run(args: string[]) {
     if (selection) {
       const context = await collectContext(snapshot);
       const reviewed = await investigate(context.files, selection.connect(selection.model), checksRun, imports.findings);
+      stopped.signal.throwIfAborted();
       limitations[0] = "Local preview with bounded source and no live GitHub prerequisites.";
-      limitations.push("Requested " + selection.label + " model: " + selection.model + ".", ...context.limitations, ...reviewed.limitations);
+      limitations.push("Requested " + selection.label + " model: " + selection.model + ".", ...context.limitations,
+        ...reviewed.limitations, ...(selection.metadata?.() ?? []));
       for (const finding of reviewed.findings) {
         const confirmed = imports.findings.find(issue => issue.id === finding.id);
         if (confirmed) {
@@ -128,16 +141,23 @@ async function run(args: string[]) {
     if (checksRun) input.checksRun = checksRun;
   } catch (error) {
     if (args[0] === "ask") {
-      const answer = "## Perry answer\n\nThe authorized source snapshot was unavailable.";
+      const answer = "## Perry answer\n\n" + (stopped.signal.aborted ? "The native Claude request was cancelled."
+        : error instanceof NativeClaudeUnavailable ? error.message : "The authorized source snapshot was unavailable.");
       console.log(options.json ? JSON.stringify({answer}) : answer);
       return 1;
     }
-    // Only snapshot acquisition errors have diagnostics written for the user.
-    const reason = !snapshot && error instanceof Error ? error.message : "Local inspection could not finish.";
+    // Diagnostics expose only source acquisition or sanitized native failures.
+    const reason = stopped.signal.aborted ? "The native Claude review was cancelled."
+      : error instanceof NativeClaudeUnavailable || (!snapshot && error instanceof Error) ? error.message : "Local inspection could not finish.";
     input = {
       snapshot, readiness: localReadiness, assessment: "failed",
       inspection: { changes: [], findings: [], coverage: [], limitations: [reason] },
     };
+  } finally {
+    if (selection?.preflight) {
+      process.removeListener("SIGINT", shutdown);
+      process.removeListener("SIGTERM", shutdown);
+    }
   }
   const report = renderReport(input);
   console.log(options.json ? JSON.stringify(report) : report.summary + "\n\n---\n\n" + report.findings);

@@ -12,6 +12,7 @@ const providers = {
   anthropic: {setting: "PERRY_ANTHROPIC_MODEL", flag: "--anthropic-model", key: "ANTHROPIC_API_KEY"},
   openai: {setting: "PERRY_OPENAI_MODEL", flag: "--openai-model", key: "OPENAI_API_KEY"},
   "opencode-chat": {setting: "PERRY_OPENCODE_CHAT_MODEL", flag: "--opencode-chat-model", key: "OPENCODE_API_KEY"},
+  "claude-cli": {setting: "PERRY_CLAUDE_CLI_MODEL", flag: "--claude-cli-model", key: undefined},
 } as const;
 
 export interface ApprovedModel {provider: keyof typeof providers; model: string}
@@ -21,7 +22,7 @@ export function approvedModel(env: NodeJS.ProcessEnv): ApprovedModel | undefined
     .filter(provider => env[providers[provider].setting] !== undefined);
   if (!selected.length) return;
   if (selected.length !== 1) {
-    throw new Error("Configure PERRY_ANTHROPIC_MODEL, PERRY_OPENAI_MODEL or PERRY_OPENCODE_CHAT_MODEL with exactly one model.");
+    throw new Error("Configure PERRY_ANTHROPIC_MODEL, PERRY_OPENAI_MODEL, PERRY_OPENCODE_CHAT_MODEL or PERRY_CLAUDE_CLI_MODEL with exactly one model.");
   }
   const provider = selected[0]!;
   const model = env[providers[provider].setting]!;
@@ -65,7 +66,12 @@ export async function runLocal(repo: string, r: MentionRequest, refs: Refs, sign
     const selectedModel = typeof model === "string" ? approvedModel({PERRY_ANTHROPIC_MODEL: model})! : model;
     const provider = providers[selectedModel.provider];
     args.push(provider.flag, selectedModel.model);
-    if (runtime.env[provider.key]) env[provider.key] = runtime.env[provider.key];
+    if (provider.key && runtime.env[provider.key]) env[provider.key] = runtime.env[provider.key];
+    if (selectedModel.provider === "claude-cli") {
+      for (const name of ["HOME", "USER", "LOGNAME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"]) {
+        if (runtime.env[name]) env[name] = runtime.env[name];
+      }
+    }
   }
   const body = await new Promise<string>((resolve, reject) => {
     runtime.execute(process.execPath, args, { env, signal, timeout: selected ? 250_000 : 150_000, maxBuffer: 1024 * 1024, windowsHide: true },

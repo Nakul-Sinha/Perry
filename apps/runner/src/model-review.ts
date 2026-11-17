@@ -2,6 +2,7 @@ import type { Finding, Severity } from "./contracts.ts";
 import { openaiMessage } from "./openai.ts";
 import { opencodeMessage } from "./opencode.ts";
 import { postModelJson } from "./provider-http.ts";
+import { nativeClaudeBackend, NativeClaudeUnavailable } from "./native-claude.ts";
 
 export type ContextFile = {
   path: string; ref: "head" | "merge_base" | "base"; sha: string; text: string; changed: boolean;
@@ -51,25 +52,31 @@ const providers = [
   {flag: "anthropic-model", label: "Anthropic", key: "ANTHROPIC_API_KEY"},
   {flag: "openai-model", label: "OpenAI", key: "OPENAI_API_KEY"},
   {flag: "opencode-chat-model", label: "OpenCode Chat Completions", key: "OPENCODE_API_KEY"},
+  {flag: "claude-cli-model", label: "native Claude Code", key: undefined},
 ] as const;
 
-export function selectModel(options: Partial<Record<typeof providers[number]["flag"], string | undefined>>) {
+export function selectModel(options: Partial<Record<typeof providers[number]["flag"], string | undefined>>, signal?: AbortSignal) {
   const selected = providers.filter(p => options[p.flag] !== undefined);
   if (selected.length === 0) return;
   if (selected.length > 1) throw new Error("Select one model provider.");
   const provider = selected[0]!;
   const model = options[provider.flag]!;
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(model) || model.trim() !== model) throw new Error("Invalid model ID.");
+  const native = provider.flag === "claude-cli-model" ? nativeClaudeBackend(model, signal) : undefined;
   const connect = (id: string): Call => {
+    if (native) {
+      if (id !== model) throw new Error("The native model selection changed.");
+      return (role, payload) => native.complete(prompts[role], payload);
+    }
     if (provider.flag === "anthropic-model") return anthropicBackend(id);
     const send = provider.flag === "openai-model" ? openaiMessage : opencodeMessage;
     return async (role, payload) => {
-      const key = process.env[provider.key];
+      const key = provider.key && process.env[provider.key];
       if (!key) throw new MissingModelAccess(provider.label + " API access is unavailable. Supply " + provider.key + " to the local Perry process.");
       return send(id, prompts[role], payload, key);
     };
   };
-  return {model, label: provider.label, connect};
+  return {model, label: provider.label, connect, preflight: native?.preflight, metadata: native?.metadata};
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -214,7 +221,7 @@ export async function investigate(context: ContextFile[], call: Call, checksRun?
       });
     }
   } catch (error) {
-    gaps.add(error instanceof MissingModelAccess
+    gaps.add(error instanceof MissingModelAccess || error instanceof NativeClaudeUnavailable
       ? error.message
       : "The model " + stage + " did not return a complete, valid response within the review budget.");
   }

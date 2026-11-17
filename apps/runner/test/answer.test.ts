@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { answerQuestion } from "../src/answer.ts";
 import type { Snapshot } from "../src/contracts.ts";
+import { NativeClaudeUnavailable } from "../src/native-claude.ts";
 
 const commit = "2".repeat(40);
 function fixture(files: Record<string, string>) {
@@ -102,4 +103,14 @@ test("large files consume the scan byte budget and unsupported inventories absta
   const candidate = { ...snapshot };
   delete candidate.listPaths;
   assert.match(await answerQuestion(candidate, "price"), /did not establish an answer/);
+});
+
+test("safe native failure reasons accompany the cited source fallback", async () => {
+  const {snapshot} = fixture(files);
+  const answer = await answerQuestion(snapshot, "subtotal", "claude-fixture", () => async () => {
+    throw new NativeClaudeUnavailable("The native Claude model or billing route did not match the selected native account route.");
+  });
+  assert.match(answer, /model or billing route did not match/);
+  assert.match(answer, /fees\.ts:2-3/);
+  assert.match(answer, /Matching committed source/);
 });
