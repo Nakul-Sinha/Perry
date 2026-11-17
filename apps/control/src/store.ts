@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import type { MentionRequest } from "./intake.ts";
-import type { Observation, Refs, ReviewWatch } from "./worker.ts";
+import type { Observation, PublishedReview, ReviewWatch } from "./worker.ts";
+import type { ReadinessRevision } from "./readiness.ts";
 
 type Slot = "summary" | "findings" | "answer";
 export interface Job {
@@ -41,6 +42,8 @@ const ddl = `
     due_at timestamptz,
     failures integer NOT NULL DEFAULT 0
   );
+  ALTER TABLE perry_review_watches ADD COLUMN IF NOT EXISTS readiness jsonb;
+  ALTER TABLE perry_review_watches ADD COLUMN IF NOT EXISTS pending_readiness jsonb;
   CREATE INDEX IF NOT EXISTS perry_watch_due ON perry_review_watches (due_at) WHERE due_at IS NOT NULL;
   INSERT INTO perry_review_watches (scope, mention_id, reviewed, due_at)
   SELECT DISTINCT ON (m.scope) m.scope, m.id, m.result->'refs', now() + interval '5 minutes'
@@ -152,7 +155,7 @@ export class Store {
     }
   }
 
-  async workOne(process: (request: MentionRequest, job: Job) => Promise<void | Refs>, repository?: { installationId: string; repoId: string }): Promise<boolean> {
+  async workOne(process: (request: MentionRequest, job: Job) => Promise<void | PublishedReview>, repository?: { installationId: string; repoId: string }): Promise<boolean> {
     return this.session(async (client, signal) => {
       let after = "0";
       while (!signal.aborted) {
@@ -162,7 +165,7 @@ export class Store {
             AND ($2::text IS NULL OR (j.request->>'installationId' = $2 AND j.request->>'repoId' = $3))
             AND NOT EXISTS (SELECT 1 FROM perry_mentions p WHERE p.scope = j.scope AND p.id < j.id AND p.state <> 'done')
             AND (j.request->>'kind' <> 'review' OR NOT EXISTS (
-              SELECT 1 FROM perry_review_watches w WHERE w.scope = j.scope AND w.observed IS NOT NULL
+              SELECT 1 FROM perry_review_watches w WHERE w.scope = j.scope AND (w.observed IS NOT NULL OR w.pending_readiness IS NOT NULL)
             ))
           ORDER BY j.id LIMIT 16
         `, [after, repository?.installationId ?? null, repository?.repoId ?? null]);
@@ -180,7 +183,7 @@ export class Store {
               UPDATE perry_mentions SET attempts = attempts + 1
               WHERE id = $1 AND state = 'pending' AND available_at <= now()
                 AND (request->>'kind' <> 'review' OR NOT EXISTS (
-                  SELECT 1 FROM perry_review_watches w WHERE w.scope = perry_mentions.scope AND w.observed IS NOT NULL
+                  SELECT 1 FROM perry_review_watches w WHERE w.scope = perry_mentions.scope AND (w.observed IS NOT NULL OR w.pending_readiness IS NOT NULL)
                 ))
               RETURNING request, attempts
             `, [id]);
@@ -191,13 +194,14 @@ export class Store {
                 const refs = await process(row.request, createJob(client, id, scope, row.request, signal));
                 signal.throwIfAborted();
                 if (refs && row.request.kind === "review") {
+                  const {readiness = null, ...reviewed} = refs;
                   await client.query(`
                     WITH finished AS (UPDATE perry_mentions SET state = 'done' WHERE id = $1 RETURNING id, scope)
-                    INSERT INTO perry_review_watches(scope, mention_id, reviewed, due_at)
-                    SELECT scope, id, $2::jsonb, now() + interval '5 minutes' FROM finished
+                    INSERT INTO perry_review_watches(scope, mention_id, reviewed, readiness, due_at)
+                    SELECT scope, id, $2::jsonb, $3::jsonb, now() + interval '5 minutes' FROM finished
                     ON CONFLICT (scope) DO UPDATE SET mention_id = EXCLUDED.mention_id, reviewed = EXCLUDED.reviewed,
-                      observed = NULL, due_at = EXCLUDED.due_at, failures = 0
-                  `, [id, JSON.stringify(refs)]);
+                      observed = NULL, pending_readiness = NULL, readiness = EXCLUDED.readiness, due_at = EXCLUDED.due_at, failures = 0
+                  `, [id, JSON.stringify(reviewed), JSON.stringify(readiness)]);
                 } else await client.query("UPDATE perry_mentions SET state = 'done' WHERE id = $1", [id]);
                 return true;
               } catch (error) {
@@ -229,7 +233,7 @@ export class Store {
     return this.session(async (client, signal) => {
       // A queued review takes precedence until a stale write is in flight.
       // Then writers must finish reconciliation before publishing a newer pair.
-      const eligible = `w.due_at <= now() AND (w.observed IS NOT NULL OR NOT EXISTS (
+      const eligible = `w.due_at <= now() AND (w.observed IS NOT NULL OR w.pending_readiness IS NOT NULL OR NOT EXISTS (
         SELECT 1 FROM perry_mentions n WHERE n.scope = w.scope AND n.id > w.mention_id
           AND n.request->>'kind' = 'review' AND n.state <> 'done'))`;
       const args = [repository.installationId, repository.repoId];
@@ -243,9 +247,11 @@ export class Store {
         if (!acquired.rows[0]!.locked) continue;
         try {
           const selected = await client.query<{
-            request:MentionRequest; refs:Refs; observed:Observation|null; summary:string|null; findings:string|null;
+            request:MentionRequest; refs:PublishedReview; observed:Observation|null; summary:string|null; findings:string|null;
+            assessmentSummary:string|null; readiness:ReadinessRevision|null; pendingReadiness:ReadinessRevision|null;
           }>(`
-            SELECT m.request, w.reviewed AS refs, w.observed, s.comment_id AS summary, f.comment_id AS findings
+            SELECT m.request, w.reviewed AS refs, w.observed, s.comment_id AS summary, f.comment_id AS findings,
+              m.result->'bodies'->>'summary' AS "assessmentSummary", w.readiness, w.pending_readiness AS "pendingReadiness"
             FROM perry_review_watches w JOIN perry_mentions m ON m.id = w.mention_id
             LEFT JOIN perry_slots s ON s.scope = w.scope AND s.name = 'summary'
             LEFT JOIN perry_slots f ON f.scope = w.scope AND f.name = 'findings'
@@ -254,11 +260,11 @@ export class Store {
           const row = selected.rows[0];
           if (!row) continue;
           try {
-            if (!row.summary || !row.findings || !/^\d+$/.test(row.summary) || !/^\d+$/.test(row.findings)) {
+            if (!row.summary || !row.findings || !/^\d+$/.test(row.summary) || !/^\d+$/.test(row.findings) || !row.assessmentSummary) {
               throw new Error("Both owned slots are required for review maintenance.");
             }
             const retired = await check({
-              ...row, summary: row.summary, findings: row.findings, signal,
+              ...row, summary: row.summary, findings: row.findings, assessmentSummary: row.assessmentSummary, signal,
               async begin(observed) {
                 signal.throwIfAborted();
                 const saved = await client.query(`
@@ -267,10 +273,27 @@ export class Store {
                 `, [scope, id, JSON.stringify(observed)]);
                 return saved.rowCount === 1;
               },
+              async beginReadiness(revision) {
+                signal.throwIfAborted();
+                const saved = await client.query(`
+                  UPDATE perry_review_watches w SET pending_readiness = $3::jsonb
+                  WHERE w.scope = $1 AND w.mention_id = $2 AND w.observed IS NULL AND w.pending_readiness IS NULL AND ${eligible}
+                `, [scope, id, JSON.stringify(revision)]);
+                return saved.rowCount === 1;
+              },
+              async finishReadiness() {
+                signal.throwIfAborted();
+                const saved = await client.query(`
+                  UPDATE perry_review_watches SET readiness = pending_readiness, pending_readiness = NULL
+                  WHERE scope = $1 AND mention_id = $2 AND pending_readiness IS NOT NULL
+                `, [scope, id]);
+                if (saved.rowCount !== 1) throw new Error("No matching readiness publication is pending.");
+              },
             });
             signal.throwIfAborted();
             await client.query(`
               UPDATE perry_review_watches SET observed = NULL, failures = 0,
+                pending_readiness = CASE WHEN $3::boolean THEN NULL ELSE pending_readiness END,
                 due_at = CASE WHEN $3::boolean THEN NULL ELSE now() + interval '5 minutes' END
               WHERE scope = $1 AND mention_id = $2
             `, [scope, id, retired]);

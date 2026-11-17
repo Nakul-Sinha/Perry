@@ -103,6 +103,7 @@ test("absent ruleset contexts, wrong source, in-progress jobs and ambiguous reru
   for (const nodes of [
     [{...run, name: "docs"}],
     [{...run, checkSuite: {app: {databaseId: 23}}, conclusion: "FAILURE"}],
+    [{...run, checkSuite: {app: null}, conclusion: "FAILURE"}],
     [{...run, status: "IN_PROGRESS", conclusion: null}],
   ]) {
     assert.equal((await observe({checks: () => rollup(nodes)})).result.checks, "pending");

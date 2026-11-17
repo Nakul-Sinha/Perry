@@ -228,3 +228,47 @@ test("stale maintenance verifies installed repository and existing owned slot wi
     assert.ok(!denied.calls.some(s => s.startsWith("PATCH ") || s.startsWith("POST " + path)));
   }
 });
+
+test("readiness maintenance survives an edited or deleted trigger and updates only the existing owned summary", async () => {
+  for (const triggerResponse of [Response.json({...realComment,body:"edited"}),Response.json({message:"gone"},{status:404})]) {
+    let body=slot.body;
+    const {client,calls}=gateway(async(req,url)=>{
+      if(url.pathname.endsWith("/issues/comments/11")) return triggerResponse;
+      if(url.pathname.endsWith("/issues/comments/15")) {
+        if(req.method==="PATCH") body=(await req.json()).body;
+        return Response.json({...slot,body});
+      }
+    });
+    const refresh=()=>client.refreshSummary(trigger,"15",{base:a,head:b},"updated readiness",new AbortController().signal);
+    assert.equal(await refresh(),null);
+    assert.equal(await refresh(),null);
+    assert.equal(calls.filter(call=>call.startsWith("PATCH ")).length,1);
+    assert.ok(body.endsWith(summaryMarker));
+    assert.ok(!calls.some(call=>call.endsWith("/comments/11")||call.includes("/collaborators/")||call.startsWith("POST "+path)));
+  }
+});
+
+test("readiness maintenance rechecks refs after slot lookup and refuses revoked or unowned targets", async()=>{
+  const signal=new AbortController().signal;
+  let lookedUp=false;
+  const moved=gateway((req,url)=>{
+    if(url.pathname.endsWith("/issues/comments/15")&&req.method==="GET") {lookedUp=true;return Response.json(slot);}
+    if(url.pathname.endsWith("/pulls/3")) {
+      assert.equal(lookedUp,true);
+      return Response.json({state:"open",number:3,base:{sha:a,repo},head:{sha:a,repo}});
+    }
+  });
+  assert.deepEqual(await moved.client.refreshSummary(trigger,"15",{base:a,head:b},"updated",signal),{base:a,head:a,closed:false});
+  assert.ok(!moved.calls.some(call=>call.startsWith("PATCH ")));
+  for (const when of ["initial","dispatch","ownership"] as const) {
+    let grants=0;
+    const denied=gateway((req,url)=>{
+      if(url.pathname==="/installation/repositories"&&++grants>=(when==="initial"?1:2)&&when!=="ownership") {
+        return Response.json({total_count:0,repositories:[]});
+      }
+      if(url.pathname.endsWith("/issues/comments/15")&&req.method==="GET") return Response.json(when==="ownership"?{...slot,user:sender}:slot);
+    });
+    await assert.rejects(denied.client.refreshSummary(trigger,"15",{base:a,head:b},"updated",signal));
+    assert.ok(!denied.calls.some(call=>call.startsWith("PATCH ")||call.startsWith("POST "+path)));
+  }
+});

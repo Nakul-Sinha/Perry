@@ -234,7 +234,10 @@ test("PostgreSQL mention queue", { skip: !connectionString }, async t => {
     });
     assert.equal(repaired,true);
     assert.equal(await store.pollOne(scope,never),false);
-    await store.workOne(async () => changed,scope);
+    await store.workOne(async (_r,job) => {
+      await job.saveResult({refs:changed,bodies:{summary:"replacement",findings:"ok"}});
+      return changed;
+    },scope);
     await due();
     let replacement = "";
     await store.pollOne(scope,async watch => { replacement = watch.request.commentId; return false; });

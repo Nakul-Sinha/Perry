@@ -29,6 +29,43 @@ export function unavailableReadiness(refs: Refs): ReadinessObservation {
   });
 }
 
+export interface ReadinessRevision {
+  facts: ReadinessObservation;
+  summary: string;
+}
+
+// The current runner only publishes text reports. Live facts may tighten that
+// assessment, but cannot establish completed source coverage or promote MERGE.
+export function reviseReadiness(summary: string, facts: ReadinessObservation): ReadinessRevision {
+  const rating = /^(?:\*\*)?(HOLD|DO NOT MERGE|MERGE) \| (10|[0-9])\/10(?: merge readiness)?(?: \(provisional\))?(?:\*\*)?$/m;
+  const original = rating.exec(summary);
+  let score = original ? Math.min(Number(original[2]), 7) : 0;
+  let decision = original?.[1] === "DO NOT MERGE" ? "DO NOT MERGE" : "HOLD";
+  const invalid = facts.freshness === "stale" || !original;
+  if (invalid) { score = 0; decision = "HOLD"; }
+  else if (!(original[1] === "HOLD" && score === 0) && (facts.checks === "failed" || facts.mergeability === "conflicts")) {
+    decision = "DO NOT MERGE"; score = Math.min(score, 4);
+  }
+  const header = `**${decision} | ${score}/10 merge readiness (provisional)**`;
+  let rendered = original ? summary.replace(rating, header) : "## Perry review\n\n" + header + "\n\nThe source assessment could not be verified.";
+  // The source report's GitHub facts were unknown when it was produced. Keep
+  // its source deductions and coverage, and replace only those old live facts.
+  const paragraphs = rendered.split("\n\n");
+  if (paragraphs[0] === "## Perry review" && paragraphs[1] === header && paragraphs[2]?.endsWith(".")) {
+    const reasons = paragraphs[2].slice(0, -1).split(", ").filter(reason => !/^(?:GitHub mergeability unknown|required checks (?:unknown|pending)|merge prerequisites (?:unknown|unsatisfied|satisfied)|freshness unknown)$/.test(reason));
+    paragraphs[2] = reasons.length ? reasons.join(", ") + "." : "GitHub readiness is recorded below.";
+  }
+  rendered = paragraphs.join("\n\n").replace(/^(Coverage: \d+\/\d+ changed paths checked\.) GitHub required checks: (?:failed|pending|passed|not required|unknown)\.$/m, "$1");
+  const checkRef = facts.checkSha ? ` at \`${facts.checkSha}\`` : "";
+  const observed = `GitHub observed ${facts.observedAt}: required checks ${facts.checks.replace("_", " ")}${checkRef}; mergeability ${facts.mergeability}; prerequisites ${facts.prerequisites}; freshness ${facts.freshness}.`;
+  const limitations = facts.limitations.join(" ");
+  rendered = rendered.trimEnd() + "\n\n" + observed + (limitations ? "\n\n" + limitations : "");
+  if (Buffer.byteLength(rendered) > 58_000) {
+    rendered = "## Perry review\n\n**HOLD | 0/10 merge readiness (provisional)**\n\nThe readiness summary exceeds the comment budget. Publication is incomplete.";
+  }
+  return {facts, summary: rendered};
+}
+
 const sha = /^[a-f0-9]{40}$/;
 const prQuery = `query PerryPull($owner:String!, $repo:String!, $number:Int!) {
   repository(owner:$owner, name:$repo) {
@@ -130,7 +167,7 @@ function classify(checks: Check[], expected: Required[] | null, evidence: string
     if (typeof name !== "string" || !name) throw new Error();
     const appId = run ? check.checkSuite?.app?.databaseId : undefined;
     const sameName = expected?.filter(rule => rule.context === name) ?? [];
-    const matches = sameName.filter(rule => !appId || !rule.integration_id || rule.integration_id < 0 || rule.integration_id === appId);
+    const matches = sameName.filter(rule => !run || !rule.integration_id || rule.integration_id < 0 || rule.integration_id === appId);
     for (const match of matches) missing.delete(match);
     if (!check.isRequired || (run && sameName.length && !matches.length)) continue;
     const state = run ? (check.status === "COMPLETED" ? check.conclusion : check.status) : check.state;
