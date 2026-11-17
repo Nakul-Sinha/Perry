@@ -8,7 +8,7 @@ const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const scopeId = /^[1-9]\d{0,19}$/;
 const maxBytes = 4096;
 type Registration = { runnerId: string; installationId: string; repoId: string };
-type Identity = Registration & { origin: string; token: string };
+export type Identity = Registration & { origin: string; token: string };
 
 function origin(input: unknown): string {
   const invalid = new Error("Specify an HTTPS origin or an HTTP loopback address without a path.");
@@ -62,22 +62,30 @@ async function request(server: string, path: string, init: RequestInit): Promise
   } catch { throw new Error("Perry control did not confirm the runner request."); }
 }
 
-async function privatePath(input: string): Promise<string> {
+async function privatePath(input: string, isDirectory = false): Promise<string> {
+  if (process.platform === "win32" || !process.getuid || !constants.O_NOFOLLOW) {
+    throw new Error("Runner identities require POSIX file permissions. On Windows, use Linux files inside WSL.");
+  }
   if (!input.trim() || input !== input.trim() || /[\p{Cc}\p{Cf}]/u.test(input)) throw new Error("Invalid credential file path.");
   const path = resolve(input);
   const owner = process.getuid!();
   try {
-    const parent = dirname(path);
+    const parent = isDirectory ? path : dirname(path);
     if (await realpath(parent) !== parent) throw new Error();
     for (let directory = parent;; directory = dirname(directory)) {
       const stat = await lstat(directory);
       if (!stat.isDirectory() || (directory === parent ? stat.uid !== owner : stat.uid !== 0 && stat.uid !== owner)) throw new Error();
+      if (isDirectory && directory === parent && (stat.mode & 0o077)) throw new Error();
       // A sticky system temporary directory may contain a private child.
       if ((stat.mode & 0o022) && !(directory !== parent && stat.uid === 0 && (stat.mode & 0o1000))) throw new Error();
       if (directory === dirname(directory)) break;
     }
   } catch { throw new Error("Use existing owner-controlled directories without symbolic links for runner credentials."); }
   return path;
+}
+
+export async function privateCacheDirectory(input: string) {
+  return privatePath(input, true);
 }
 
 async function readPrivate(path: string): Promise<string> {
@@ -99,6 +107,13 @@ async function readPrivate(path: string): Promise<string> {
   } catch { throw new Error("Use an owner-only regular credential file (chmod 600) without links."); }
 }
 
+export async function readRunnerIdentity(input: string): Promise<Identity> {
+  const path = await privatePath(input);
+  let parsed: unknown;
+  try { parsed = JSON.parse(await readPrivate(path)); } catch { throw new Error("Cannot read a private runner identity."); }
+  return identity(parsed);
+}
+
 export async function runPairCommand(args: string[]): Promise<void> {
   const usage = "Use pair --server ORIGIN --code-file PATH --identity PATH or pair-status --identity PATH [--server ORIGIN].";
   let values;
@@ -112,12 +127,9 @@ export async function runPairCommand(args: string[]): Promise<void> {
       ? !values["code-file"] || !values.server : args[0] !== "pair-status" || values["code-file"] !== undefined)) throw new Error();
   } catch { throw new Error(usage); }
   const server = values.server === undefined ? undefined : origin(values.server);
-  if (process.platform === "win32" || !process.getuid || !constants.O_NOFOLLOW) {
-    throw new Error("Runner identities require POSIX file permissions. On Windows, use Linux files inside WSL.");
-  }
-  const path = await privatePath(values.identity);
   let runner: Registration;
   if (args[0] === "pair") {
+    const path = await privatePath(values.identity);
     const code = (await readPrivate(await privatePath(values["code-file"]!))).replace(/\r?\n$/, "");
     if (code.length !== 43 || !valuePattern.test(code)) throw new Error("The pairing code file has an invalid format.");
     // Reserve the name before spending the single-use code. A competing
@@ -140,9 +152,7 @@ export async function runPairCommand(args: string[]): Promise<void> {
       throw error;
     } finally { await file.close(); }
   } else {
-    let parsed: unknown;
-    try { parsed = JSON.parse(await readPrivate(path)); } catch { throw new Error("Cannot read a private runner identity."); }
-    const saved = identity(parsed);
+    const saved = await readRunnerIdentity(values.identity);
     if (server && server !== saved.origin) throw new Error("The supplied server differs from the enrolled origin.");
     runner = registration(await request(saved.origin, "/runners/me", {headers:{Authorization:"Bearer " + saved.token}}));
     if (saved.runnerId !== runner.runnerId || saved.repoId !== runner.repoId || saved.installationId !== runner.installationId) {

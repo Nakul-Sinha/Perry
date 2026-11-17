@@ -51,7 +51,10 @@ export async function processMention(r: MentionRequest, job: Job, github: Gatewa
     await job.saveResult(assessment);
   }
   if ("answer" in assessment.bodies) {
-    await write("answer", assessment.bodies.answer);
+    const now = await github.refs(r, job.signal);
+    const moved = now?.base !== assessment.refs.base || now?.head !== assessment.refs.head;
+    const stamp = "\n\nRequested base `" + assessment.refs.base + "`, head `" + assessment.refs.head + "`.";
+    await write("answer", assessment.bodies.answer + stamp + (moved ? "\n\nThe source changed or became unavailable before publication. Ask again for the current revision." : ""));
     return;
   }
   const {refs, bodies} = assessment;
