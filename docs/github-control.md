@@ -48,6 +48,7 @@ Supply configuration through the trusted process environment. Keep actual access
 | `PERRY_CACHE_DIR` | Operator-owned local cache root. |
 | `PERRY_TEST_PATH` | Optional operator-selected `.test.mjs` path for each PR review on a rootless Linux host. |
 | `PERRY_TEST_MODULE` | Optional `.mjs` dependency imported by that test, relative to the repository root. |
+| `PERRY_EXECUTION_MODE` | `local` by default, or `remote` for a paired outbound runner. |
 | `PERRY_PORT` | Optional localhost port, default `3000`. |
 | `PERRY_ANTHROPIC_MODEL` | Select Anthropic Messages with `ANTHROPIC_API_KEY`. |
 | `PERRY_OPENAI_MODEL` | Select OpenAI Responses with `OPENAI_API_KEY`. |
@@ -71,7 +72,7 @@ pnpm build
 pnpm --filter @perry/control start
 ```
 
-Both workspace apps must remain together because control invokes the matching runner entry point. The worker runs in the same pilot service rather than a paired remote daemon. Closing the service stops new intake; PostgreSQL preserves accepted pending work for restart.
+Both workspace apps must remain together because control invokes the matching runner entry point. The default local worker runs on the service host. Set `PERRY_EXECUTION_MODE=remote` to dispatch assessments to a [paired runner](runner-pairing.md). Closing the service stops new intake; PostgreSQL preserves accepted pending work for restart.
 
 ## Health and accepted work
 
@@ -132,4 +133,4 @@ Set `PERRY_TEST_DATABASE_URL` through the test runtime to a dedicated disposable
 
 Live verification remains a separate maintainer task in #6: choose a private test repository and development installation, verify authorization, actual owned comments, a question reply, and redelivery/recovery. Record sanitized results. #5 separately verifies actual Anthropic review quality and billing-route acceptance on the synthetic fixture set. Neither issue closes solely because this pilot's automated tests pass.
 
-Runner pairing, automatic source synchronization, CI readiness reconciliation, complete readiness rules, inline conversations, managed execution, hosted overflow reports, and full retention/deletion flows remain outside this pilot. Do not expose it as a general public multi-tenant review service.
+Automatic source synchronization, CI readiness reconciliation, complete readiness rules, inline conversations, managed execution, hosted overflow reports, and full retention/deletion flows remain outside this pilot. Do not expose it as a general public multi-tenant review service.

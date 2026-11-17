@@ -11,6 +11,8 @@ import { Store } from "./store.ts";
 import { checkReview, processMention } from "./worker.ts";
 import { PairingStore } from "./pairing-store.ts";
 import { issueCodeFile, PairingFileError, runnerHandler } from "./pairing.ts";
+import { RemoteStore } from "./remote-store.ts";
+import { awaitRemote, remoteHandler } from "./remote.ts";
 
 function required(name: string) {
   const value = process.env[name];
@@ -56,7 +58,12 @@ async function main() {
     return;
   }
   const model = approvedModel(process.env);
-  const cache = resolve(required("PERRY_CACHE_DIR"));
+  const execution = process.env.PERRY_EXECUTION_MODE ?? "local";
+  if (!["local","remote"].includes(execution)) throw new Error("Configure PERRY_EXECUTION_MODE as local or remote.");
+  if (execution === "remote" && (model || process.env.PERRY_TEST_PATH || process.env.PERRY_TEST_MODULE)) {
+    throw new Error("Configure PERRY_EXECUTION_MODE remote with model and check settings on the paired runner.");
+  }
+  const cache = execution === "local" ? resolve(required("PERRY_CACHE_DIR")) : "";
   const signingSecret = required("PERRY_WEBHOOK_SECRET");
   const check = approvedCheck(process.env.PERRY_TEST_PATH, process.env.PERRY_TEST_MODULE);
   const port = Number(process.env.PERRY_PORT ?? "3000");
@@ -72,6 +79,9 @@ async function main() {
   const pairs = new PairingStore(pool);
   await pairs.init();
   const runners = runnerHandler(pairs, scope);
+  const remote = new RemoteStore(pool);
+  await remote.init();
+  const jobs = remoteHandler(pairs,remote,github,scope);
   const intake = webhookHandler(signingSecret, async (delivery, request) => {
     if (request.installationId === installation && request.repoId === repository) await store.accept(delivery, request);
   });
@@ -84,7 +94,7 @@ async function main() {
       );
       return;
     }
-    const handler = req.url?.startsWith("/runners/") ? runners : intake;
+    const handler = req.url?.startsWith("/runners/jobs/") ? jobs : req.url?.startsWith("/runners/") ? runners : intake;
     void handler(req, res).catch(() => { if (!res.headersSent) res.writeHead(503, {"Cache-Control": "no-store"}); res.end(); });
   });
   server.headersTimeout = 10_000;
@@ -92,31 +102,38 @@ async function main() {
   await new Promise<void>((done, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", done); });
   console.log("Perry control listening on 127.0.0.1:" + port);
   let stopping = false;
-  const stop = () => { stopping = true; server.close(); };
+  const shutdown = new AbortController();
+  const stop = () => { stopping = true; shutdown.abort(); server.close(); };
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
-  let nextPoll = 0;
-  try {
+  const maintenance = async () => {
+    while (!stopping) {
+      try { await store.pollOne(scope, watch => checkReview(watch, github)); }
+      catch { if (!stopping) console.error("Review freshness checking will retry."); }
+      await sleep(5000, undefined, {signal:shutdown.signal}).catch(() => {});
+    }
+  };
+  const work = async () => {
     while (!stopping) {
       try {
         const active = await store.workOne(async (request, job) => {
-          return processMention(request, job, github, async (r, refs, signal) => {
+          const currentJob = {...job, signal: AbortSignal.any([job.signal, shutdown.signal])};
+          return processMention(request, currentJob, github, async (r, refs, signal) => {
+            if (execution === "remote") return awaitRemote(remote,r,refs,signal);
             const token = await github.sourceToken(r, signal);
             const repo = await prepareCache(cache, r, refs, token, signal);
             return runLocal(repo, r, refs, signal, model, check);
           });
         }, scope);
-        if (Date.now() >= nextPoll) {
-          nextPoll = Date.now() + 5000;
-          await store.pollOne(scope, watch => checkReview(watch, github));
-        }
         if (!active) await sleep(500);
       } catch {
         console.error("The queue worker lost its connection. Retrying.");
         await sleep(2000);
       }
     }
-  } finally { server.close(); await pool.end(); }
+  };
+  try { await Promise.all([work(), work(), maintenance()]); }
+  finally { stop(); await pool.end(); }
 }
 
 main().catch(error => {

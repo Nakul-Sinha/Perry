@@ -66,6 +66,16 @@ test("a changed head between findings and final summary leaves a dated HOLD", as
   assert.ok(h.comments.get("summary")!.body.includes(refs.head));
 });
 
+test("a question pins its answer and identifies a head changed during assessment", async () => {
+  const h = harness();
+  let reads = 0;
+  h.gateway.refs = async () => ++reads === 1 ? refs : {...refs,head:"c".repeat(40)};
+  await processMention({...request,kind:"question",text:"where is total?"},h.job,h.gateway,async()=>({answer:"## Perry answer\n\nCited source"}));
+  assert.deepEqual(h.writes,["answer"]);
+  assert.ok(h.comments.get("answer")!.body.includes(refs.head));
+  assert.match(h.comments.get("answer")!.body,/source changed/);
+});
+
 test("revoked requests do no work; questions only use their answer slot", async () => {
   const h = harness();
   h.gateway.authorize = async () => false;
