@@ -98,6 +98,17 @@ test("source tokens accept only the selected repo and read-only contents grant",
   }
 });
 
+test("readiness requires the installed repository and respects a cancelled lease", async () => {
+  const signal = new AbortController().signal;
+  const denied = gateway((_req, url) => url.pathname === "/installation/repositories"
+    ? Response.json({total_count: 0, repositories: []}) : undefined);
+  const facts = await denied.client.readiness(trigger, {base: a, head: b}, signal);
+  assert.equal(facts.freshness, "unknown");
+  assert.equal(facts.prerequisites, "unknown");
+  assert.ok(!denied.calls.some(call => call.endsWith("/graphql")));
+  await assert.rejects(denied.client.readiness(trigger, {base: a, head: b}, AbortSignal.abort()));
+});
+
 test("paginated slot reconciliation updates only the owned comment on the selected thread", async () => {
   const { client, calls } = gateway(async (req, url) => {
     if (url.pathname.endsWith("/issues/3/comments") && req.method === "GET") {

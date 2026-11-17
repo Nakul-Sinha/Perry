@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { parseMention, type MentionRequest } from "./intake.ts";
 import type { Observation, Refs } from "./worker.ts";
+import { collectReadiness, unavailableReadiness } from "./readiness.ts";
 
 export type CommentSlot = "summary" | "findings" | "answer";
 export class UncertainComment extends Error {}
@@ -117,6 +118,20 @@ export class GitHubGateway {
     } catch (error) {
       if (status(error) === 404 || status(error) === 410) return false;
       throw new Error("GitHub requester authorization is unavailable.");
+    }
+  }
+
+  async readiness(r: MentionRequest, expected: Refs, signal: AbortSignal) {
+    try {
+      signal.throwIfAborted();
+      if (r.kind !== "review" || !r.isPR) return unavailableReadiness(expected);
+      const deadline = AbortSignal.any([signal, AbortSignal.timeout(20_000)]);
+      const api = await this.client(r, deadline);
+      if (!await this.granted(r, api, deadline)) return unavailableReadiness(expected);
+      return await collectReadiness(api, r, expected, deadline);
+    } catch {
+      signal.throwIfAborted();
+      return unavailableReadiness(expected);
     }
   }
 
