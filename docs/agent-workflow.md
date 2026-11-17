@@ -77,3 +77,7 @@ The pilot does not implement inline review threads, live CI/approval/branch-rule
 Model review context now follows exact identifier matches and local import relationships through three hops, including unchanged callers, TypeScript source behind JavaScript import names, barrels and related tests. It uses approved base plans and both changed revisions. The search scans at most 64 source candidates within a 512 KiB index budget; output remains bounded to six changed paths, four plans, 24 files and 48 KiB. Filters and missing context remain explicit. Compiler aliases, dynamic calls and Git history are still open context work.
 
 Focused fixtures cover an unchanged TypeScript caller behind a barrel, an empty-order regression and matching clean refactor, deleted providers, sensitive exclusions, all budgets, and a PR that tries to change its own approved plan. Model transport remains simulated; this does not close the live quality gates.
+
+### Handoff from assessment admission limits
+
+Control now supports an optional repository-scoped daily admission limit and a database-only usage command. Real PostgreSQL fixtures exercise concurrent requests, UTC accounting, duplicate delivery, stored-result recovery, review and question exhaustion, canceled or revoked work, accounting failure and the public operator command. An admitted failure stays charged; unlimited mode records no admissions. Actual provider tokens, currency budgets and native subscription usage remain separate work.

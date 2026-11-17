@@ -50,6 +50,7 @@ Supply configuration through the trusted process environment. Keep actual access
 | `PERRY_TEST_MODULE` | Optional `.mjs` dependency imported by that test, relative to the repository root. |
 | `PERRY_EXECUTION_MODE` | `local` by default, or `remote` for a paired outbound runner. |
 | `PERRY_PORT` | Optional localhost port, default `3000`. |
+| `PERRY_DAILY_ASSESSMENT_LIMIT` | Optional limit from `1` to `1000000` admitted assessments per UTC day for this repository. Unset means unlimited. |
 | `PERRY_ANTHROPIC_MODEL` | Select Anthropic Messages with `ANTHROPIC_API_KEY`. |
 | `PERRY_OPENAI_MODEL` | Select OpenAI Responses with `OPENAI_API_KEY`. |
 | `PERRY_OPENCODE_CHAT_MODEL` | Select OpenCode Console Chat Completions with `OPENCODE_API_KEY`. |
@@ -57,6 +58,20 @@ Supply configuration through the trusted process environment. Keep actual access
 Configure at most one model variable. Start with all three unset for static reviews and excerpt answers. Supply the chosen route's key privately in the service environment. The runner receives only the key for that route. Provider selection applies to both reviews and questions.
 
 The allowlist is one installation/repository pair per process. Other signed installation/repository events are not queued. Changing the allowlist does not migrate another installation's pending work or grant access to it.
+
+### Daily assessment allowance
+
+When a daily limit is configured, PostgreSQL reserves one admission after requester authorization and source revision selection, before source acquisition or remote dispatch. Reviews and questions share the allowance, including static assessments. Concurrent requests cannot exceed the configured daily count. Replaying a stored assessment or the same admitted request does not reserve again. Reservations remain charged if later assessment fails or is canceled.
+
+Exhaustion publishes provisional `HOLD | 0/10` with a reason, or a separate question reply, without starting assessment work. An accounting failure also stops assessment. Post a new mention after the UTC reset or an operator limit increase; redelivery preserves the original result. Unlimited mode does not record admissions. These counts are assessment admissions, not tokens, model calls, subscription usage or a currency budget.
+
+Inspect the current UTC count using only database and installation/repository configuration:
+
+```sh
+pnpm dev:control --usage
+```
+
+The command reports admissions recorded while a limit was enabled and the currently configured limit. It does not need App or provider setup. Changing the limit applies to new admission decisions; already admitted requests remain eligible for recovery.
 
 Start from the repository root after configuring the process:
 
