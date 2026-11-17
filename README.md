@@ -123,6 +123,8 @@ pnpm review:fixture empty-cart --opencode-chat-model MODEL_ID
 
 Add the same flag to `pnpm review:local` or `pnpm ask:local` for your own checkout. Reviews send selected committed source, base plans and callers to the chosen provider for investigation and independent verification. Questions send the question and selected excerpts. With no model flag, assessment stays local. Perry uses the selected billing route for both passes and identifies incomplete or unavailable results.
 
+Review context follows local imports, named symbols, unchanged callers and related tests for up to three relationship hops. It includes at most six changed paths, four plans from the approved base, 24 files and 48 KiB of source. Selection is heuristic; compiler aliases, dynamic calls and Git history are not resolved. Larger changes and unavailable context remain visible as coverage gaps.
+
 The OpenAI route sends stateless requests with response storage disabled. The OpenCode route supports eligible models served by its Chat Completions endpoint. Its free-tier chat models require the OpenCode client. Provider integration tests use simulated responses. Live validation is tracked in [#5](https://github.com/Nakul-Sinha/Perry/issues/5) and [#7](https://github.com/Nakul-Sinha/Perry/issues/7). [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create), [OpenCode inference API](https://opencode.ai/docs/console/api/inference/).
 
 Until the connection flow ships, you can give your coding agent this prompt:
