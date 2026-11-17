@@ -72,6 +72,8 @@ Configure the pilot as described in [GitHub control](docs/github-control.md), th
 pnpm dev:control
 ```
 
+Operators can set `PERRY_DAILY_ASSESSMENT_LIMIT` to share a daily allowance between reviews and questions, then inspect it with `pnpm dev:control --usage`. Exhaustion stops new assessment work and leaves a clear provisional review or question reply. The limit counts admitted assessments, including static reviews; it does not measure provider tokens or money.
+
 Only newly created general conversation comments are supported. Perry periodically checks the base and head of reviewed PRs. A changed commit or closed PR marks the existing pair stale. Request a new review to assess new code. CI-only changes and inline review threads are still pending. The pilot reports `HOLD` or `DO NOT MERGE`. Operators can enable a rootless Podman check for reviews. Automated tests use simulated GitHub responses; live private-installation acceptance remains open in [#6](https://github.com/Nakul-Sinha/Perry/issues/6). Live Anthropic acceptance is tracked separately in [#5](https://github.com/Nakul-Sinha/Perry/issues/5).
 
 ### Run an isolated Node test
