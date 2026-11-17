@@ -91,21 +91,17 @@ For PR mentions, configure `PERRY_TEST_PATH` and optionally `PERRY_TEST_MODULE` 
 
 ### CLI login mode
 
-API keys are not always easy to keep at your disposal, so Perry is being built with a way to connect an eligible Claude Code or Codex CLI login on your own device.
-
-Install your chosen CLI using its official instructions, then authenticate directly with that provider:
+API keys are not always easy to keep at your disposal, so Perry includes a native Claude Code pilot using your own supported login on Linux or WSL. It requires Claude Code `2.1.325` and an explicit canonical model ID. Install that version using the [official setup instructions](https://code.claude.com/docs/en/setup), then authenticate directly:
 
 ```sh
-# Claude Code
+claude --version
 claude auth login
+pnpm review:fixture empty-cart --claude-cli-model MODEL_ID
 ```
 
-```sh
-# Codex
-codex login
-```
+Add `--claude-cli-model MODEL_ID` to a local review, question or paired runner command. For the local control host, configure `PERRY_CLAUDE_CLI_MODEL` instead. Select one connection at a time. Perry checks native account status and the reported model, starts independent tool-disabled review passes, and does not fall back to API billing.
 
-These commands sign in to the provider, not Perry. Connecting that session to Perry is still being built. Subscription eligibility depends on the provider and deployment; Perry will not copy account tokens or pool allowances.
+The [native CLI guide](docs/native-cli.md) covers restrictions, host policy and validation limits. Native Windows and the Codex adapter remain unavailable pending verified startup and tool isolation. `codex login` signs into Codex itself and does not connect Perry. Live account acceptance remains in [#7](https://github.com/Nakul-Sinha/Perry/issues/7). Perry does not copy login caches or pool account allowances.
 
 ### Bring your own key
 

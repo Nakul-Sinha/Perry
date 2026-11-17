@@ -15,6 +15,8 @@ const env: NodeJS.ProcessEnv = {
   XDG_RUNTIME_DIR: "fixture-runtime", DBUS_SESSION_BUS_ADDRESS: "fixture-bus",
   ANTHROPIC_API_KEY: "fixture-anthropic", OPENAI_API_KEY: "fixture-openai", OPENCODE_API_KEY: "fixture-opencode",
   PERRY_WEBHOOK_SECRET: "fixture-signing", DATABASE_URL: "fixture-database", NODE_OPTIONS: "fixture-options",
+  ANTHROPIC_AUTH_TOKEN: "fixture-auth", CLAUDE_CODE_OAUTH_TOKEN: "fixture-oauth", CLAUDE_CONFIG_DIR: "fixture-config",
+  XDG_CONFIG_HOME: "fixture-xdg", XDG_DATA_HOME: "fixture-data", LOGNAME: "fixture-user",
 };
 const modelCases = [
   {setting: "PERRY_ANTHROPIC_MODEL", provider: "anthropic", flag: "--anthropic-model", key: "ANTHROPIC_API_KEY"},
@@ -49,6 +51,10 @@ test("ambiguous, empty and invalid model configuration fails without exposing it
     {PERRY_ANTHROPIC_MODEL: "first-fixture", PERRY_OPENAI_MODEL: "second-fixture"},
     {PERRY_OPENAI_MODEL: "first-fixture", PERRY_OPENCODE_CHAT_MODEL: "second-fixture"},
     {PERRY_ANTHROPIC_MODEL: "first-fixture", PERRY_OPENCODE_CHAT_MODEL: "second-fixture"},
+    {PERRY_CLAUDE_CLI_MODEL: "first-fixture", PERRY_ANTHROPIC_MODEL: "second-fixture"},
+    {PERRY_CLAUDE_CLI_MODEL: "first-fixture", PERRY_OPENAI_MODEL: "second-fixture"},
+    {PERRY_CLAUDE_CLI_MODEL: "first-fixture", PERRY_OPENCODE_CHAT_MODEL: "second-fixture"},
+    {PERRY_CLAUDE_CLI_MODEL: ""},
     ...modelCases.flatMap(item => ["", "private model value", "bad\nvalue", "-option", "a".repeat(129)].map(value => ({[item.setting]: value}))),
   ]) {
     assert.throws(() => approvedModel(config), error => error instanceof Error
@@ -110,6 +116,22 @@ test("ambiguous provider selection fails control startup before App or database 
       PERRY_OPENAI_MODEL: "private-fixture-one", PERRY_OPENCODE_CHAT_MODEL: "private-fixture-two"},
   });
   assert.equal(child.status, 1);
-  assert.match(child.stderr, /Configure PERRY_ANTHROPIC_MODEL, PERRY_OPENAI_MODEL or PERRY_OPENCODE_CHAT_MODEL with exactly one model/);
+  assert.match(child.stderr, /Configure PERRY_ANTHROPIC_MODEL, PERRY_OPENAI_MODEL, PERRY_OPENCODE_CHAT_MODEL or PERRY_CLAUDE_CLI_MODEL with exactly one model/);
   assert.doesNotMatch(child.stderr + child.stdout, /private-fixture/);
+});
+
+test("native model forwards native account paths and excludes API or routing credentials", async () => {
+  for (const kind of ["review", "question"] as const) {
+    const child = capture(kind === "review" ? {summary: "summary", findings: "findings", score: 4, recommendation: "HOLD"} : {answer: "answer"});
+    const selected = approvedModel({PERRY_CLAUDE_CLI_MODEL: "claude-sonnet-5-5"});
+    assert.deepEqual(selected, {provider: "claude-cli", model: "claude-sonnet-5-5"});
+    await runLocal("fixture-repo", {...request, kind}, refs, new AbortController().signal, selected, undefined, child.runtime);
+    const call = child.get();
+    assert.equal(call.args[call.args.indexOf("--claude-cli-model") + 1], "claude-sonnet-5-5");
+    assert.deepEqual(call.options.env, {
+      PATH: env.PATH, SystemRoot: env.SystemRoot, HOME: env.HOME, USER: env.USER, LOGNAME: env.LOGNAME,
+      XDG_CONFIG_HOME: env.XDG_CONFIG_HOME, XDG_DATA_HOME: env.XDG_DATA_HOME,
+      XDG_RUNTIME_DIR: env.XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS: env.DBUS_SESSION_BUS_ADDRESS,
+    });
+  }
 });

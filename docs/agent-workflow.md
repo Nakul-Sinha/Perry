@@ -87,3 +87,18 @@ Control now supports an optional repository-scoped daily admission limit and a d
 Live metadata collection is wired through final publication and periodic same-commit maintenance. Required failures and conflicts tighten the original assessment; recovery preserves source findings, original score caps and partial coverage. Classic protection and actor restrictions stay unknown, so the pilot remains HOLD at best. No additional model calls run when only GitHub facts change.
 
 Worker and PostgreSQL fixtures cover immutable source results, unchanged facts, failed and recovered CI, old mention edits/deletion, revoked grants, source movement just before dispatch, lost write receipts, restart and fencing of newer reviews. GitHub transport remains simulated. Continue live acceptance in issue #6, then finish the remaining retention, protected report, connection and quality gates before beta.
+
+### Handoff from native Claude connection
+
+The native Claude pilot is wired through local review, questions, paired runners and local control configuration. It pins CLI 2.1.325 on Linux/WSL, checks native account status, denies tools, validates actual model/route and bounds process lifetime. Independent review passes use empty private temporary directories. Managed administrator policy remains part of the trusted host. Read the native CLI guide before enabling it.
+
+Tests simulate the installed executable and provider result protocol. Windows checks fail closed before source assessment; Linux CI exercises actual process-group cleanup with synthetic processes. A real native account assessment remains an issue #7 acceptance task. Codex native mode is still gated on verified startup and tool isolation, and no billing fallback is enabled.
+
+### Remaining release work
+
+- Finish operator disconnect and scoped deletion, then automatic retention and installation lifecycle handling.
+- Add owner setup/status and repository-authorized report access, including complete oversized findings.
+- Expand context to compiler-backed symbols and bounded history, and extend verified execution beyond the single-module Node profile.
+- Complete provider accounting and cost controls beyond daily admission counts.
+- Evaluate domain review procedures, new-file/deletion evidence and real held-out changes; synthetic tests do not establish frontier-agent review quality.
+- Complete live account/App acceptance in issues #5, #6 and #7, and human holdout adjudication in issue #13 before shadow beta.

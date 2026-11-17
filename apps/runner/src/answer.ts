@@ -1,6 +1,7 @@
 import type { Snapshot } from "./contracts.ts";
 import { containsSensitiveText, questionPath } from "./model-context.ts";
 import { anthropicBackend } from "./model-review.ts";
+import { NativeClaudeUnavailable } from "./native-claude.ts";
 
 const stop = new Set("what where when why how who does do did is are was were has have it its in to at as of be by for on the a an and or with that this which file code about from tell me show would could can please function repo repository".split(" "));
 type Excerpt = { path: string; line: number; endLine: number; text: string; score: number };
@@ -80,7 +81,10 @@ export async function answerQuestion(snapshot: Snapshot, question: string, model
         || !reply.citations.every((n: unknown) => typeof n === "number" && Number.isInteger(n) && !!excerpts[n])) return unable;
       selected = [...new Set<number>(reply.citations)].map(i => excerpts[i]!);
       message = literal(reply.answer);
-    } catch { message = "The model answer was unavailable. Matching committed source"; }
+    } catch (error) {
+      message = error instanceof NativeClaudeUnavailable ? error.message + " Matching committed source"
+        : "The model answer was unavailable. Matching committed source";
+    }
   }
   return heading + "\n\n" + message + "\n\n" + selected.map(x => {
     const range = x.endLine === x.line ? String(x.line) : x.line + "-" + x.endLine;

@@ -12,9 +12,9 @@ if (scenario === "--list" && process.argv.length === 3) {
   process.exit(0);
 }
 const modelArgs = process.argv.slice(3);
-const modelFlags = ["--anthropic-model", "--openai-model", "--opencode-chat-model"];
+const modelFlags = ["--anthropic-model", "--openai-model", "--opencode-chat-model", "--claude-cli-model"];
 if (!names.includes(scenario) || (modelArgs.length && (modelArgs.length !== 2 || !modelFlags.includes(modelArgs[0]!) || !modelArgs[1]))) {
-  console.error("Usage: pnpm review:fixture [case] [--anthropic-model | --openai-model | --opencode-chat-model MODEL_ID]. Use --list to see case names.");
+  console.error("Usage: pnpm review:fixture [case] [--anthropic-model | --openai-model | --opencode-chat-model | --claude-cli-model MODEL_ID]. Use --list to see case names.");
   process.exit(2);
 }
 

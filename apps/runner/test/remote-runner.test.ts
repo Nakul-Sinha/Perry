@@ -178,5 +178,6 @@ test("serve rejects ambiguous options and uses trusted provider and check valida
   const args = ["serve","--identity","unused","--cache","unused"];
   await assert.rejects(runRemote([...args,"--cache","again"]),/Use serve/);
   await assert.rejects(runRemote([...args,"--openai-model","a","--anthropic-model","b"]),/exactly one model/);
+  await assert.rejects(runRemote([...args,"--claude-cli-model","claude-sonnet-5-5","--openai-model","b"]),/exactly one model/);
   await assert.rejects(runRemote([...args,"--module","module.mjs"]),/repository-relative/);
 });
