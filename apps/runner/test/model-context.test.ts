@@ -197,3 +197,23 @@ test("unavailable inventory and source remain visible without discarding collect
   assert.ok(context.limitations.some(item => item.includes("inventory was unavailable")));
   assert.ok(context.limitations.some(item => item.includes("recent Git history")));
 });
+
+test("documentation-only changes do not scan unrelated source", async () => {
+  const base = {"README.md": "Instructions."};
+  const head = {...base, ...Object.fromEntries(Array.from({length: 64}, (_, i) => ["source" + i + ".ts", "export const value = 1;"]))};
+  const {snapshot, reads} = fixture(base, head, [{path: "README.md", status: "modified"}]);
+  const context = await collectContext(snapshot);
+  assert.equal(context.files.length, 0);
+  assert.deepEqual(reads, []);
+});
+
+test("a full changed-source budget skips unrelated source reads", async () => {
+  const text = "//" + "x".repeat(12 * 1024 - 2);
+  const base = {"first.ts": text, "second.ts": text};
+  const head = {...base, "unrelated.ts": "export const value = 1;"};
+  const {snapshot, reads} = fixture(base, head, Object.keys(base).map(path => ({path, status: "modified"})));
+  const context = await collectContext(snapshot);
+  assert.equal(context.files.reduce((size, file) => size + Buffer.byteLength(file.text), 0), 48 * 1024);
+  assert.equal(reads.length, 4);
+  assert.ok(!reads.includes("head:unrelated.ts"));
+});

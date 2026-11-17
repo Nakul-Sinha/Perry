@@ -99,42 +99,44 @@ export async function collectContext(snapshot: Snapshot) {
     for (const path of plans.slice(0, 4)) await add("base", path, false);
     const head = new Set((await snapshot.listPaths("head")).filter(path => code.test(path) && !excluded.test(path)));
     const seeds = files.filter(file => file.changed);
-    const named = [...new Set(seeds.flatMap(file => sourceNames(file.text).symbols))];
-    if (named.length > 32) limitations.add("Named-symbol search exceeded its 32-name limit.");
-    const symbols = new Set(named.slice(0, 32));
-    const selected = new Set(seeds.map(file => file.path));
-    const targets = new Set([...head, ...selected]);
-    const direct = new Set(seeds.filter(file => file.ref === "head").flatMap(file => sourceNames(file.text).imports
-      .map(specifier => localTarget(file.path, specifier, targets)).filter(path => path !== undefined)));
-    const test = /(?:^|\/)(?:__tests__|tests?)\/|[.-](?:test|spec)\.[^.]+$/i;
-    const priority = (path: string) => (direct.has(path) ? 4 : 0) + (test.test(path) ? 1 : 0);
-    const candidates = [...head].filter(path => !changedPaths.has(path))
-      .sort((a, b) => priority(b) - priority(a) || a.localeCompare(b));
-    if (candidates.length > 64) limitations.add("Related-source search exceeded its 64-file scan limit.");
-    let searchBytes = 512 * 1024;
-    const related: {path: string; words: Set<string>; targets: Set<string>}[] = [];
-    for (const path of candidates.slice(0, 64)) {
-      const text = await read("head", path);
-      if (text === null) continue;
-      const size = Buffer.byteLength(text);
-      if (size > searchBytes) {
-        limitations.add("Related-source search exceeded its 512 KiB indexing budget.");
-        continue;
+    if (seeds.length && remaining > 0 && files.length < 24) {
+      const named = [...new Set(seeds.flatMap(file => sourceNames(file.text).symbols))];
+      if (named.length > 32) limitations.add("Named-symbol search exceeded its 32-name limit.");
+      const symbols = new Set(named.slice(0, 32));
+      const selected = new Set(seeds.map(file => file.path));
+      const targets = new Set([...head, ...selected]);
+      const direct = new Set(seeds.filter(file => file.ref === "head").flatMap(file => sourceNames(file.text).imports
+        .map(specifier => localTarget(file.path, specifier, targets)).filter(path => path !== undefined)));
+      const test = /(?:^|\/)(?:__tests__|tests?)\/|[.-](?:test|spec)\.[^.]+$/i;
+      const priority = (path: string) => (direct.has(path) ? 4 : 0) + (test.test(path) ? 1 : 0);
+      const candidates = [...head].filter(path => !changedPaths.has(path))
+        .sort((a, b) => priority(b) - priority(a) || a.localeCompare(b));
+      if (candidates.length > 64) limitations.add("Related-source search exceeded its 64-file scan limit.");
+      let searchBytes = 512 * 1024;
+      const related: {path: string; words: Set<string>; targets: Set<string>}[] = [];
+      for (const path of candidates.slice(0, 64)) {
+        const text = await read("head", path);
+        if (text === null) continue;
+        const size = Buffer.byteLength(text);
+        if (size > searchBytes) {
+          limitations.add("Related-source search exceeded its 512 KiB indexing budget.");
+          continue;
+        }
+        searchBytes -= size;
+        const names = sourceNames(text);
+        related.push({path, words: names.words, targets: new Set(names.imports
+          .map(specifier => localTarget(path, specifier, targets)).filter(target => target !== undefined))});
       }
-      searchBytes -= size;
-      const names = sourceNames(text);
-      related.push({path, words: names.words, targets: new Set(names.imports
-        .map(specifier => localTarget(path, specifier, targets)).filter(target => target !== undefined))});
-    }
-    for (let depth = 0; depth < 3; depth++) {
-      const next = related.filter(file => !selected.has(file.path) && (direct.has(file.path)
-        || [...file.targets].some(target => selected.has(target))
-        || related.some(caller => selected.has(caller.path) && caller.targets.has(file.path))
-        || (depth === 0 && [...symbols].some(symbol => file.words.has(symbol)))));
-      for (const file of next) selected.add(file.path);
-    }
-    for (const file of related) {
-      if (selected.has(file.path)) await add("head", file.path, false);
+      for (let depth = 0; depth < 3; depth++) {
+        const next = related.filter(file => !selected.has(file.path) && (direct.has(file.path)
+          || [...file.targets].some(target => selected.has(target))
+          || related.some(caller => selected.has(caller.path) && caller.targets.has(file.path))
+          || (depth === 0 && [...symbols].some(symbol => file.words.has(symbol)))));
+        for (const file of next) selected.add(file.path);
+      }
+      for (const file of related) {
+        if (selected.has(file.path)) await add("head", file.path, false);
+      }
     }
   } catch {
     limitations.add("The repository inventory was unavailable for related source or approved plans.");
